@@ -20,7 +20,7 @@ Videos are saved to "\DATA\Videos".
 The DATA folder must be within the folder containing the executable file.\
 For development, this may be "..\x64\Release".
 
-FFmpeg.exe is required in "\DATA\FFMpeg".
+FFmpeg.exe is required in "\DATA\FFMPEG".
 
 * Go to https://github.com/GyanD/codexffmpeg/releases
 * Choose the "Essentials" build. e.g. "ffmpeg-6.0-essentials_build.zip" and download the archive.
@@ -30,10 +30,10 @@ Using the FFmpeg executable for realtime encoding in this way is dependent on
 CPU performance. For example, encoding of a high resolution Spout source, such as 4K,
 may not keep up with the input data rate.
 
-The FFmpeg encoding speed is shown in the console window. You should see a speed
+FFmpeg encoding speed is shown in the console window. You should see a speed
 of 1.0 if the encoding is keeping pace with the input frame rate. The default encoding framerate
 is 30fps and can be changed with the batch file options. Any of the FFmpeg options can be changed
 or added within the source code for rebuild.
 
-The project uses SpoutDX support class files. Files from the beta development branch
+The project uses SpoutDX support class. Files from the beta development branch
 are included in the project and can be [updated as required](https://github.com/leadedge/Spout2).
