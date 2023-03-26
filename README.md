@@ -4,14 +4,13 @@ A Windows console application to encode Spout input with FFmpeg.
 
 Encodes to a video file using FFmpeg by way of a pipe.
 Resolution and speed are improved over using SpoutCam as a source.
-It's also possible to modify for rgba video if that's necessary.
 
   F1 to start recording, ESC to quit
 
 The program can also be started from the command line.
-A batch file "aa-record.bat" can be found in the "\DATA\Scripts" folder
-and can be run directly or from a command prompt or activated from
-a program using ShellExecute of similar. Edit the file for documentation
+A batch file "aa-record.bat" in the "\DATA\Scripts" folder can be
+run directly or from a command prompt or activated from a program
+using ShellExecute of similar. Edit the file for documentation
 and to change the options.
 
 After build, SpoutRecorder.exe is copied to the "Binaries" folder.\
@@ -33,7 +32,7 @@ may not keep up with the input data rate.
 FFmpeg encoding speed is shown in the console window. You should see a speed
 of 1.0 if the encoding is keeping pace with the input frame rate. The default encoding framerate
 is 30fps and can be changed with the batch file options. Any of the FFmpeg options can be changed
-or added within the source code for rebuild.
+or added within the batch file.
 
-The project uses SpoutDX support class. Files from the beta development branch
+The project is for Visual Studio 2022 and uses SpoutDX support class. Files from the beta development branch
 are included in the project and can be [updated as required](https://github.com/leadedge/Spout2).

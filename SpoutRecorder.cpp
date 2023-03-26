@@ -1,20 +1,20 @@
 //
 // SpoutRecorder.cpp
 //
-// Encodes Spout input to a video file using FFmpeg by way of a pipe
+// Encodes Spout input to a video file using FFmpeg by way of a pipe.
 // Resolution and speed are improved over using SpoutCam as a source
 // It's also possible to modify for rgba video if that's necessary.
 //
 //	  F1 to start recording, ESC to quit
 //
 // Uses the SpoutDX support class
-// SpoutRecorder.exe is copied to the "Binaries" folder
-// Command line options are available (DATA\Scripts folder)
-// Command line option "-start" starts encoding as soon as a sender is found
+// After build, SpoutRecorder.exe is copied to the "Binaries" folder
+// Any FFmpeg option can be added by way of a command line and batch file.
+// Command line options can be found in (DATA\Scripts\aa-record.bat.
+// Edit this file for details.
 //
-// References :
+// Reference :
 // https://batchloaf.wordpress.com/2017/02/12/a-simple-way-to-read-and-write-audio-and-video-files-in-c-using-ffmpeg-part-2-video/
-// https://developers.google.com/media/vp9/live-encoding
 //
 // =========================================================================
 // 
@@ -53,6 +53,7 @@ unsigned int g_SenderHeight = 0;       // Received sender height
 
 // For FFmpeg recording
 FILE* m_FFmpeg = nullptr; // FFmpeg pipe
+std::string g_FFmpegArgs; // User FFmpeg arguments from batch file
 std::string g_OutputFile; // Output video file
 bool bActive = false;     // Sender is active
 bool bEncoding = false;   // Encode in progress
@@ -65,11 +66,12 @@ bool bExit = false;       // User quit flag
 // -tune    zerolatency (default), (or others)
 // -crf:xx  CRF value for x624 (23 default)
 // -fps:xx  Specify frame rate e.g. 60, 30 or 25
-bool bStart  = false; // Command line start
+bool bStart  = false; // Start FFmpeg (command line option)
 bool bPrompt = false; // User file name entry dialog
-bool bx264 = false;  // x624 encode
-int g_CRF = 23;      // x264 CRF value
-int g_FPS = 30;      // Output frame rate
+bool bx264 = false;   // x624 encode
+int g_CRF = 23;       // x264 CRF value
+int g_FPS = 30;       // Output frame rate
+std::string g_FileExt = "mp4";      // Output file extemsion
 std::string g_Preset = "veryfast";  // x624 preset
 std::string g_Tune = "zerolatency"; // x264 tune
 
@@ -92,7 +94,10 @@ int main(int argc, char* argv[])
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 
 	// Parse command line arguments
-	// "-start" - immediate start and end when sender closes
+	// "-start"  - immediate start and end when sender closes (default false)
+	// "-prompt" - prompt user for output file (default false)
+	// "-ext"    - file type required by codec (default "mp4")
+	// FFmpeg arguments are last (see "DATA\Scrpits\aa-record.bat")
 	if (argc > 1) {
 		ParseCommandLine(argc, argv);
 	}
@@ -102,18 +107,16 @@ int main(int argc, char* argv[])
 		bActive = true;
 	}
 
-	// Console immediate start option 
+	// Minimize for command line immediate start
 	if (bStart) {
-		ShowWindow(hwnd, SW_HIDE); // Prevent animated effect
-		ShowWindow(hwnd, SW_SHOWMINIMIZED); // Taskbar
+		// ShowWindow(hwnd, SW_HIDE); // Prevent animated effect
+		ShowWindow(hwnd, SW_SHOWMINIMIZED); // Minimis=ze to Taskbar
 	}
 	else {
-		if (bActive) {
+		if (bActive)
 			printf("SpoutRecorder : [%s]\n", g_SenderName);
-		}
-		else {
+		else
 			printf("SpoutRecorder : no sender active\n");
-		}
 		printf("F1 to record, ESC to quit\n");
 	}
 
@@ -156,15 +159,19 @@ int main(int argc, char* argv[])
 }
 
 
-// Parse command line args.
+// Parse command line argsuments
 void ParseCommandLine(int argc, char* argv[])
 {
 	// argv[0] is the executable name
+	// FFmpeg arguments are last
 	if (argc > 0) {
+
+		std::string argstr;
 		for (int i = 1; i < argc; i++)
 		{
+			argstr = argv[i];
 			if (argv[i]) {
-				std::string argstr = argv[i];
+				// Program arguments
 				if (strstr(argv[i], "-start") != 0) {
 					// Command line immediate start
 					bStart = true;
@@ -174,38 +181,29 @@ void ParseCommandLine(int argc, char* argv[])
 					// Prompt for file name entry
 					bPrompt = true;
 				}
-				else if (strstr(argv[i], "-x264") != 0) {
-					// x264 encoding
-					bx264 = true;
-				}
-				else if (strstr(argv[i], "-preset") != 0) {
-					// x264 preset
-					size_t pos = argstr.find(":");
-					argstr = argstr.substr(pos+1, argstr.size()-pos);
-					g_Preset = argstr.c_str();
-				}
-				else if (strstr(argv[i], "-tune") != 0) {
-					// x264 tune
-					size_t pos = argstr.find(":");
-					argstr = argstr.substr(pos+1, argstr.size()-pos);
-					g_Tune = argstr.c_str();
-
-				}
-				else if (strstr(argv[i], "-crf") != 0) {
-					// x264 CRF
-					size_t pos = argstr.find(":");
-					argstr = argstr.substr(pos+1, argstr.size()-pos);
-					g_CRF = atoi(argstr.c_str());
-				}
-				else if (strstr(argv[i], "-fps") != 0) {
-					// FPS
-					size_t pos = argstr.find(":");
-					argstr = argstr.substr(pos+1, argstr.size()-pos);
-					g_FPS = atoi(argstr.c_str());
+				else if (strstr(argv[i], "-ext") != 0) {
+					// File type required by codec (mp4/mkv/avi/mov etc)
+					size_t pos = argstr.find("-ext");
+					if (pos != std::string::npos) {
+						argstr = argstr.substr(pos+5, 3);
+						g_FileExt = argstr;
+					}
 				}
 			}
 		}
+
+		// FFmpeg arguments are last
+		g_FFmpegArgs = argstr;
+		if (!g_FFmpegArgs.empty()) {
+			// Extract frame rate for FFmpeg and video receive
+			size_t pos = argstr.find("-r ");
+			if (pos != std::string::npos) {
+				argstr = argstr.substr(pos+3, 2); // 2 digits for fps
+				g_FPS = atoi(argstr.c_str());
+			}
+		}
 	}
+
 }
 
 
@@ -237,7 +235,6 @@ void Receive()
 				StartFFmpeg();
 		}
 		else if (pixelBuffer && m_FFmpeg) {
-
 			if (bEncoding) {
 				// Encode to video with the FFmpeg output pipe
 				fwrite((const void*)pixelBuffer, 1, g_SenderWidth*g_SenderHeight*3, m_FFmpeg);
@@ -264,28 +261,6 @@ void Receive()
 
 }
 
-void StopFFmpeg()
-{
-	if (m_FFmpeg) {
-		SetCursor(LoadCursor(NULL, IDC_WAIT));
-		// ffmpeg file is still open so close it
-		fflush(m_FFmpeg);
-		_pclose(m_FFmpeg);
-		m_FFmpeg = nullptr;
-		// Allow FFmpeg to finish
-		Sleep(10);
-		bEncoding = false;
-		SetCursor(LoadCursor(NULL, IDC_ARROW));
-		// Stop encoding with the Escape key
-		if (bPrompt) {
-			// Show the user the saved file details
-			char tmp[MAX_PATH];
-			sprintf_s(tmp, MAX_PATH, "Saved [%s]", g_OutputFile.c_str());
-			MessageBoxA(NULL, tmp, "Spout recorder", MB_OK | MB_TOPMOST | MB_ICONINFORMATION);
-		}
-	}
-}
-
 
 void StartFFmpeg()
 {
@@ -300,20 +275,19 @@ void StartFFmpeg()
 	PathRemoveFileSpecA(exefolder);
 
 	// Default output file path
-	g_OutputFile += exefolder;
+	g_OutputFile = exefolder;
 	g_OutputFile += "\\DATA\\Videos\\";
 	g_OutputFile += (char*)g_SenderName;
-	g_OutputFile += ".mp4";
+	g_OutputFile += ".";
+	g_OutputFile += g_FileExt;
 
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+	//
 	// User file name entry
 	//
 	if (bPrompt) {
-
 		// if ofn.lpstrFile contains a path, that path is the initial directory.
-		char filePath[MAX_PATH];
+		char filePath[MAX_PATH]={};
 		sprintf_s(filePath, MAX_PATH, g_OutputFile.c_str());
-
 		OPENFILENAMEA ofn={};
 		ofn.lStructSize = sizeof(OPENFILENAMEA);
 		HWND hwnd = NULL;
@@ -322,23 +296,19 @@ void StartFFmpeg()
 		ofn.nMaxFileTitle = 31;
 		ofn.lpstrFile = (LPSTR)filePath;
 		ofn.nMaxFile = MAX_PATH;
-		ofn.lpstrFilter = "Video files (*.mp4)\0*.mp4\0All files (*.*)\0*.*\0";
+		ofn.lpstrFilter = "Mpeg-4 (*.mp4)\0*.mp4\0Matroska (*.mkv)\0*.mkv\0Audio Video Interleave (*.avi)\0*.avi\0Quicktime (*.mov)\0*.mov\0All files (*.*)\0*.*\0";
 		ofn.lpstrDefExt = "";
 		ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
 		ofn.lpstrTitle = "Output File";
-
 		// OFN_OVERWRITEPROMPT prompts for over-write
 		if (!GetSaveFileNameA(&ofn)) {
-			// Stop FFmpeg and exit
-			StopFFmpeg();
-			bExit = true;
+			// FFmpeg has not been started yet
+			// Return to try again
 			return;
 		}
-
 		// User file name entry
 		g_OutputFile = filePath;
 	}
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	// printf("%s\n", g_OutputFile.c_str());
 
 	// FFmpeg location
@@ -366,79 +336,36 @@ void StartFFmpeg()
 	outputString += std::to_string(g_SenderWidth);
 	outputString += "x";
 	outputString += std::to_string(g_SenderHeight);
-	
-	// Set the FFmpeg frame rate
+
+	// FFmpeg input frame rate must be the same as
+	// the video frame output rate (see HoldFps)
 	outputString += " -r ";
 	outputString += std::to_string(g_FPS);
 
-	// Final “-” tells FFmpeg to write to stdout
-	outputString += " -i - ";
-
 	// Disable audio
 	outputString += " -an";
-
-	// x264 Encoding option
-	// Default mp4 format is the fastest method
-	if(!bx264) {
-
-		// MP4 output file format
-		outputString += " -f mp4";
-
-		// quality of the encoded MP4 file (1 = best, 31 = worse) 
-		// 5 - best trade off between file size and quality
-		outputString += " -q:v 5";
-
-		// FFmpeg “mpeg4” encoder
-		outputString += " -vcodec mpeg4";
-	}
-	else {
-
-		// For a fast CPU, h264 or h256 can be used
-		outputString += " -vcodec libx264";
-
-		// Presets for x264
-		// Slow presets are not suitable for stream encoding
-		// High speed encoding, larger file size
-		// fast
-		// very fast (default)
-		// utrafast
-		outputString += " -preset ";
-		outputString += g_Preset;
-
-		// Quality
-		// 18-25 recomended (23 default)
-		// 18 is practically lossless
-		outputString += " -crf ";
-		outputString += std::to_string(g_CRF);
-
-		// Tuning options after preset
-
-		// -tune animation
-		// Improves encode quality for animated content
-		// Possibly better for generated graphics
-		// --bframes {+2} --deblock 1:1
-		// --psy-rd 0.4:<unset> --aq-strength 0.6
-		// --ref{Double if >1 else 1}
-
-		// -tune zerolatency
-		// Optimization for fast encoding and low-latency streaming
-		// Improves speed for x264 / x265
-		// No lookahead, no B frames, no cutree
-		// --bframes 0 --force-cfr --no-mbtree
-		// --sync-lookahead 0 --sliced-threads
-		// --rc-lookahead 0
-
-		if (!g_Tune.empty() && g_Tune != "none") {
-			outputString += " -tune ";
-			outputString += g_Tune;
-		}
-
-	}
+	
+	// The final “-” tells FFmpeg to write to stdout
+	outputString += " -i - ";
 
 	// Flip bottom up bitmap 
 	outputString += " -vf vflip ";
-		
-	outputString += "\"";
+
+	// User FFmpeg options
+	// See "DATA\Scripts\aa-record.bat"
+	if (!g_FFmpegArgs.empty()) {
+		outputString += g_FFmpegArgs;
+	}
+	else { // Defaults
+		// FFmpeg “mpeg4” encoder (MPEG-4 Part 2 format)
+		// https://trac.ffmpeg.org/wiki/Encode/MPEG-4
+		outputString += " -vcodec mpeg4";
+		// Quality (1 = best, 31 = worse) 
+		// 5 - best trade off between file size and quality
+		outputString += " -q:v 5";
+	}
+
+	outputString += " \""; // Insert a space before the output file
 	outputString += g_OutputFile;
 	outputString += "\"";
 	// printf("%s\n\n", outputString.c_str());
@@ -456,3 +383,25 @@ void StartFFmpeg()
 
 } // end StartFFmpeg
 
+
+// Stop encoding with the Escape key or if the sender closes
+void StopFFmpeg()
+{
+	if (m_FFmpeg) {
+		SetCursor(LoadCursor(NULL, IDC_WAIT));
+		// ffmpeg file is still open so close it
+		fflush(m_FFmpeg);
+		_pclose(m_FFmpeg);
+		m_FFmpeg = nullptr;
+		// Allow FFmpeg to finish
+		Sleep(10);
+		bEncoding = false;
+		SetCursor(LoadCursor(NULL, IDC_ARROW));
+		if (bPrompt) {
+			// Show the user the saved file details for 4 seconds
+			char tmp[MAX_PATH];
+			sprintf_s(tmp, MAX_PATH, "Saved [%s]", g_OutputFile.c_str());
+			SpoutMessageBox(NULL, tmp, "Spout recorder", MB_OK | MB_TOPMOST | MB_ICONINFORMATION, 4000);
+		}
+	}
+}
