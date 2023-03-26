@@ -26,10 +26,7 @@ FFmpeg.exe is required in "\DATA\FFMPEG".
 * Unzip the archive and copy bin\FFmpeg.exe to : &nbsp;\DATA\FFMPEG
 
 Using the FFmpeg executable for realtime encoding in this way is dependent on
-CPU performance. For example, encoding of a high resolution Spout source, such as 4K,
-may not keep up with the input data rate.
-
-FFmpeg encoding speed is shown in the console window. You should see a speed
+CPU performance. FFmpeg encoding speed is shown in the console window. You should see a speed
 of 1.0 if the encoding is keeping pace with the input frame rate. The default encoding framerate
 is 30fps and can be changed with the batch file options. Any of the FFmpeg options can be changed
 or added within the batch file.
