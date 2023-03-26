@@ -7,9 +7,9 @@ Resolution and speed are improved over using SpoutCam as a source.
 
   F1 to start recording, ESC to quit
 
-The program can also be started from the command line.
-A batch file "aa-record.bat" in the "\DATA\Scripts" folder can be
-run directly or from a command prompt or activated from a program
+The program can also be started with command line arguments.
+A batch file "aa-record.bat" located in the "\DATA\Scripts" folder can be
+run directly or from a command console or activated from a program
 using ShellExecute of similar. Edit the file for documentation
 and to change the options.
 
