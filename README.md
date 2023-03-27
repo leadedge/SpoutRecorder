@@ -14,10 +14,10 @@ using ShellExecute of similar. Edit the file for documentation
 and to change the options.
 
 After build, SpoutRecorder.exe is copied to the "Binaries" folder.\
-Videos are saved to "\DATA\Videos".
-
-The DATA folder must be within the folder containing the executable file.\
-For development, this may be "..\x64\Release".
+Videos are saved to "\DATA\Videos". If you want to add audio, copy the audio file you want
+to "\DATA\Audio" and use ""aa-audio.bat" in the "\DATA\Scripts" folder.
+It's best to run this from a command prompt console so that you can see any see any errors.
+The combined "out" file can be found in the "\DATA\Scripts" folder
 
 FFmpeg.exe is required in "\DATA\FFMPEG".
 
@@ -33,3 +33,6 @@ or added within the batch file.
 
 The project is for Visual Studio 2022 and uses SpoutDX support class. Files from the beta development branch
 are included in the project and can be [updated as required](https://github.com/leadedge/Spout2).
+
+For development, copy the complete DATA folder to the folder containing the executable file.\
+This may be for example, "..\x64\Release".
