@@ -5,7 +5,7 @@ Resolution and speed are improved over using SpoutCam as a source within FFmpeg.
 
 Designed as a simple recorder and for those who are familiar with FFmpeg command line arguments. It is also an example of receiving pixels from a Spout source using a basic console program without dependency on OpenGL or DirectX or even a window.
 
-A solution without dependency on FFmpeg has been developed by [LightJams](https://www.lightjams.com/spout-recorder.html).\
+A recorder without dependency on FFmpeg has been developed by [LightJams](https://www.lightjams.com/spout-recorder.html).\
 [OBS studio](https://obsproject.com/) can also produce video by way of the [Off World Live plugin](https://github.com/Off-World-Live/obs-spout2-plugin).
 
 The program can be started directly or with command line arguments.\
