@@ -15,10 +15,11 @@ using ShellExecute of similar. Edit the file for documentation
 and to change the options.
 
 After build, SpoutRecorder.exe is copied to the "Binaries" folder.\
-Videos are saved to "\DATA\Videos". If you want to add audio, copy the audio file you want
-to "\DATA\Audio" and use ""aa-audio.bat" in the "\DATA\Scripts" folder.
+Videos are saved to "\DATA\Videos". 
+
+If you want to add audio, copy the audio file to "\DATA\Audio" and use "aa-audio.bat" in the "\DATA\Scripts" folder.\
 It's best to run this from a command prompt console so that you can see any see any errors.
-The combined "out" file can be found in the "\DATA\Scripts" folder
+The combined "out" file can be found in the "\DATA\Videos" folder
 
 FFmpeg.exe is required in "\DATA\FFMPEG".
 
