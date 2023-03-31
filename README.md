@@ -3,8 +3,9 @@
 A Windows console application to encode Spout input to a video file using FFmpeg by way of a pipe.
 Resolution and speed are improved over using SpoutCam as a source within FFmpeg.
 
-Designed as a simple recorder and for those who are familiar with FFmpeg command line arguments.\
-For developers, it is also an example of receiving pixels from a Spout source using a basic console program without dependency on OpenGL or DirectX or even a window.
+Designed as a simple recorder and for those who are familiar with FFmpeg command line arguments.
+
+For developers, it's an example of receiving pixels from a Spout source using a basic console program without dependency on OpenGL or DirectX or even a window.
 
 ### FFmpeg
 
