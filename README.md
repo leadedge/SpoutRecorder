@@ -9,27 +9,27 @@ For developers, this is an example of receiving pixels from a Spout source using
 
 ### FFmpeg
 
-FFmpeg.exe is required in "\DATA\FFMPEG".
+FFmpeg.exe is required in "DATA\FFMPEG".
 
 * Go to https://github.com/GyanD/codexffmpeg/releases
 * Choose the "Essentials" build. e.g. "ffmpeg-6.0-essentials_build.zip" and download the archive.
-* Unzip the archive and copy bin\ffmpeg.exe to : &nbsp;\DATA\FFMPEG
+* Unzip the archive and copy bin\ffmpeg.exe to : &nbsp;DATA\FFMPEG
 
 ### Virtual audio filter
 
-To record system audio together with the video, a virtual audio device is used
-that captures what you hear from the speakers, developed by Roger Pack.
+To record system audio together with the video, a virtual audio device is used.
+Developed by Roger Pack.
 
 https://github.com/rdp/virtual-audio-capture-grabber-device
 
 The device is a DirectShow filter and can be used with FFmpeg to record the audio.\
-Register it using "VirtualAudioRegister.exe" in the "\AUDIO" folder.
+Register it using "VirtualAudioRegister.exe" in the "AUDIO" folder.
 
 ### Operation
 
 The program can be started directly or with command line arguments.
 
-For command line arguments, a batch file "aa-record.bat", located in the "\DATA\Scripts" folder, can be
+For command line arguments, a batch file "aa-record.bat", located in the "DATA\Scripts" folder, can be
 run directly or from a command console or activated from a program using ShellExecute of similar.
 Edit the file for documentation and to change the options. FFmpeg arguments can also be added from the batch file.
 
@@ -39,17 +39,17 @@ FFmpeg encoding speed is shown in the console window. You should see a speed of 
 is keeping pace with the input frame rate. The default encoding framerate
 is 30fps and can be changed with the batch file options.
 
-Videos are saved to "\DATA\Videos". 
+Videos are saved to "DATA\Videos". 
 
 ### Building
 
 The project is for Visual Studio 2022 and uses SpoutDX support class. Files from the beta development branch
 are included in the project and can be [updated as required](https://github.com/leadedge/Spout2).
 
-For development, copy the complete DATA folder to the folder containing the executable file.\
-This may be for example, "..\x64\Release".
-
 After build, SpoutRecorder.exe is copied to the "Binaries" folder.
+
+For development, copy the complete DATA and AUDIO folders to the folder containing the executable file.\
+This may be for example, "..\x64\Release".
 
 ### Options
 
