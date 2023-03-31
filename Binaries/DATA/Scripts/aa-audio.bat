@@ -19,7 +19,7 @@ if "%videoname%"=="" goto Error
 set /P ext=Video type (e.g. mp4, avi, mov) : 
 if "%ext%"=="" goto Error
 
-set /P audiofile=Audio file (with extension) : 
+set /P audiofile=Audio file to add (with extension) : 
 if "%audiofile%"=="" goto Error
 
 ..\\FFMPEG\\ffmpeg -hwaccel auto -i "..\\Videos\\%videoname%.%ext%" -i "..\\Audio\\%audiofile%" -c:v copy -map 0:v -map 1:a -shortest -y "..\\Videos\\%videoname%_out.%ext%"

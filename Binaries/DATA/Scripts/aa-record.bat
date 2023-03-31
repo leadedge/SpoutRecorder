@@ -5,10 +5,24 @@ rem These must be individual arguments, enclosed in double quotes, and precede F
 rem
 rem -start
 rem Start encoding as soon as a sender is detected
+rem Default is no "-start". F1 to star ESC to exit.
 rem
 rem -prompt
 rem Prompt user for file name dialog
-rem Default is no prompt. A video file with the sender name is saved in DATA\Videos.
+rem Default is no "-prompt". A video file with the sender name is saved in DATA\Videos.
+rem
+rem -rgb
+rem RGB pixel datao instead of rgba (default false)
+rem Using rgba pixel data is approximately twice as fast due to optimized 
+rem SSE data copy from the Spout sender texture.
+rem Default is no -rgb option. RGBA pixel data is used.
+rem
+rem -audio
+rem Record desktop audio using directshow "virtual-audio-device"
+rem https://github.com/rdp/virtual-audio-capture-grabber-device
+rem "virtual-audio-device" must be registered'
+rem You may see an FFmpeg warning "Guessed Channel Layout". Ignore it.
+rem Default is no "-audio". No audio is produced.
 rem
 rem -ext
 rem Video file name extension required by the selected codec (default "mp4)
@@ -17,14 +31,18 @@ rem -ext:mkv
 rem
 rem Command line examples
 rem
+rem
 rem Start normally with user key input F1 to start and ESC to stop encoding
-rem "..\..\SpoutRecorder.exe"
+"..\..\SpoutRecorder.exe"
 rem
 rem Prompt user for destination file name and folder before encoding the video
 rem "..\..\SpoutRecorder.exe" "-prompt"
 rem
 rem Start encoding as soon as a sender is detected and stop when it is closed
 rem "..\..\SpoutRecorder.exe" "-start"
+rem
+rem Encode video with desktop audio
+rem "..\..\SpoutRecorder.exe" "-audio"
 rem
 rem ==============================================================================================
 rem
