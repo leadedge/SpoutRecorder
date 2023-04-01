@@ -29,11 +29,14 @@ Register it using "VirtualAudioRegister.exe" in the "AUDIO" folder.
 
 The program can be started directly or with command line arguments.
 
+* F1 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - start recording
+* F2 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - record system audio with the video
+* ESC &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - stop recording
+* ALT+Q &nbsp; - stop and quit
+
 For command line arguments, a batch file "aa-record.bat", located in the "DATA\Scripts" folder, can be
 run directly or from a command console or activated from a program using ShellExecute of similar.
 Edit the file for documentation and to change the options. FFmpeg arguments can also be added from the batch file.
-
-Press F1 to start recording, F2 to record system audio with the video and ESC to quit.
 
 FFmpeg encoding speed is shown in the console window. You should see a speed of 1.0 if the encoding
 is keeping pace with the input frame rate. The default encoding framerate
