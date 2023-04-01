@@ -51,7 +51,7 @@ are included in the project and can be [updated as required](https://github.com/
 
 After build, SpoutRecorder.exe is copied to the "Binaries" folder.
 
-For development, copy the complete DATA and AUDIO folders to the folder containing the executable file.\
+For development, copy the complete DATA and AUDIO folders to the folder containing the executable file.
 This may be for example, "..\x64\Release".
 
 ### Options
@@ -59,8 +59,8 @@ This may be for example, "..\x64\Release".
 * Add audio from a file to the video.
 
 Copy the audio file required to "\DATA\Audio" and use "aa-audio.bat" in the "\DATA\Scripts" folder.\
-It's best to run this from a command prompt console so that you can see any see any errors.\
-The duration of the output file is the shortest of the video or audio.\
+It's best to run this from a command prompt console so that you can see any see any errors. 
+The duration of the output file is the shortest of the video or audio.
 The combined "_out" file can be found in the "\DATA\Videos" folder
 
 * Record audio only.
