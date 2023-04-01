@@ -5,7 +5,7 @@ rem These must be individual arguments, enclosed in double quotes, and precede F
 rem
 rem -start
 rem Start encoding as soon as a sender is detected
-rem Default is no "-start". F1 to star ESC to exit.
+rem Default is no "-start". F1 to start ESC to stop.
 rem
 rem -prompt
 rem Prompt user for file name dialog
@@ -41,8 +41,9 @@ rem
 rem Start encoding as soon as a sender is detected and stop when it is closed
 rem "..\..\SpoutRecorder.exe" "-start"
 rem
-rem Encode video with desktop audio
+rem Encode video together with desktop audio
 rem "..\..\SpoutRecorder.exe" "-audio"
+rem
 rem
 rem ==============================================================================================
 rem

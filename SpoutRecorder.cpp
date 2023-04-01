@@ -4,7 +4,10 @@
 // Encodes Spout input to a video file using FFmpeg by way of a pipe.
 // Resolution and speed are improved over using SpoutCam as a source
 //
-//	  F1 to start recording, F2 with audio, ESC to quit
+//	  F1    - start recording
+//    F2    - record with audio
+//    ESC   - stop encoding
+//    ALT+Q - stop and quit
 //
 // Records system audio together with the video using the DirectShow filter by Roger Pack
 // https://github.com/rdp/virtual-audio-capture-grabber-device
@@ -17,6 +20,18 @@
 //
 // Reference :
 // https://batchloaf.wordpress.com/2017/02/12/a-simple-way-to-read-and-write-audio-and-video-files-in-c-using-ffmpeg-part-2-video/
+//
+// =========================================================================
+//
+// Revisions
+//		26-03-23 - Initial version 1.000
+//		30.03.23 - Add audio record option using virtual audio device
+//				   Developed by Roger Pack
+//				   https://github.com/rdp/virtual-audio-capture-grabber-device
+//				 - Add batch file to record audio only
+//		31.03.23 - Add VirtualAudioRegister utility to register the filter
+//		01.04.23 - Add ALT+Q hotkey to stop and quit
+//				   Allows quit when minimised or when another application is full screen
 //
 // =========================================================================
 // 
@@ -46,12 +61,13 @@
 #include "SpoutDX\SpoutDX.h"
 
 // Global Variables:
-spoutDX receiver;                      // Receiver object
-HANDLE g_hConsole = nullptr;           // Console window handle
-unsigned char* pixelBuffer = nullptr;  // Receiving pixel buffer
-char g_SenderName[256]={};             // Received sender name
-unsigned int g_SenderWidth = 0;        // Received sender width
-unsigned int g_SenderHeight = 0;       // Received sender height
+spoutDX receiver;                     // Receiver object
+HANDLE g_hConsole = nullptr;          // Console window handle
+unsigned char* pixelBuffer = nullptr; // Receiving pixel buffer
+char g_SenderName[256]={};            // Received sender name
+unsigned int g_SenderWidth = 0;       // Received sender width
+unsigned int g_SenderHeight = 0;      // Received sender height
+HWND g_hWnd = NULL;                   // Console window handle
 
 // For FFmpeg recording
 FILE* m_FFmpeg = nullptr; // FFmpeg pipe
@@ -74,7 +90,7 @@ bool bAudio  = false;
 std::string g_FileExt = "mp4";
 
 // FFmpeg arguments input by batch file (see aa-record.bat)
-int g_FPS = 30;  // Output frame rate is extracted from the FFmpeg arguments
+int g_FPS = 30; // Output frame rate is extracted from the FFmpeg arguments
 
 int main(int argc, char* argv[]);
 void ParseCommandLine(int argc, char* argv[]);
@@ -85,16 +101,16 @@ void StopFFmpeg();
 int main(int argc, char* argv[])
 {
 	// Add a title to the console window to replace the full path
-	HWND hwnd = GetConsoleWindow();
-	SetWindowTextA(hwnd, "SpoutRecorder");
+	g_hWnd = GetConsoleWindow();
+	SetWindowTextA(g_hWnd, "SpoutRecorder");
 
 	// Add an icon from shell32.dll to the console window.
 	// If activated from a batch file, the cmd.exe icon is shown in the task bar
 	HICON hIconBig = nullptr;
 	HICON hIconSmall = nullptr;
 	ExtractIconExA("%SystemRoot%\\system32\\SHELL32.dll", 176, &hIconBig, &hIconSmall, 1);
-	SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
-	SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+	SendMessage(g_hWnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
+	SendMessage(g_hWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
 
 	// Show our text bright yellow - a different colour to FFmpeg
 	// https://learn.microsoft.com/en-us/windows/console/setconsoletextattribute
@@ -102,12 +118,12 @@ int main(int argc, char* argv[])
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 
 	// Parse command line arguments
-	// "-start"  - immediate start and end when sender closes (default false)
+	// "-start"  - immediate start when sender detected and end when sender closes (default false)
 	// "-prompt" - prompt user for output file (default false)
 	// "-rgb"    - RGB or RGBA input pixel format (default false RGBA)
 	// "-audio"  - Record system audio with video (default false)
 	// "-ext"    - file type required by codec (default "mp4")
-	// FFmpeg arguments are last (see "DATA\Scripts\aa-record.bat")
+	// FFmpeg arguments are last (see "DATA\Scripts\aa-record.bat")ff
 	if (argc > 1) {
 		ParseCommandLine(argc, argv);
 	}
@@ -117,28 +133,36 @@ int main(int argc, char* argv[])
 		bActive = true;
 	}
 
-	// Minimize for command line immediate start
-	if (bStart) {
-		// ShowWindow(hwnd, SW_HIDE); // Prevent animated effect
-		ShowWindow(hwnd, SW_SHOWMINIMIZED); // Minimis=ze to Taskbar
-	}
-	else {
-		if (bActive)
-			printf("SpoutRecorder : [%s]\n", g_SenderName);
-		else
-			printf("SpoutRecorder : no sender active\n");
-		printf("F1 to record, F2 with audio, ESC to quit\n");
-	}
+	// Show the sender
+	if (bActive)
+		printf("SpoutRecorder : [%s]\n", g_SenderName);
+	else
+		printf("SpoutRecorder : no sender active\n");
 
+	// Show key commands
+	printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nALT+Q - stop and quit\n");
+
+	// Register Quit HotKey (ALT+Q)
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey?redirectedfrom=MSDN
+	RegisterHotKey(NULL, 1, MOD_NOREPEAT | MOD_ALT, 0x51); // 0x51 is 'q'
+	
+	// Monitor windows messages to look for HotKey quit
 	// Monitor keyboard input
+	MSG msg ={0};
 	do {
+
+		// ALT+Q to quit
+		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+			if (msg.message == WM_HOTKEY) {
+				StopFFmpeg();
+				bExit = true;
+			}
+		}
+
+		// F1 / F2 / ESC
 		if (_kbhit()) {
 			switch (_getch()) {
-				// Esc to stop encoding and quit
-				case VK_ESCAPE:
-					StopFFmpeg();
-					bExit = true;
-					break;
+
 				// F1 to start recording
 				// F2 for system audio with video
 				case 0x3C: // F2
@@ -150,9 +174,19 @@ int main(int argc, char* argv[])
 						StartFFmpeg();
 					}
 					else {
-						printf("Start a sender before recording\n");
+						printf("Start a sender to record\n");
 					}
 					break;
+
+				// 'ESC' to stop recording
+				case 0x1B:
+					if (m_FFmpeg) {
+						StopFFmpeg();
+						SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+						printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nALT+Q - stop and quit\n");
+					}
+					break;
+
 				// Function keys can produce an extra 0 with getch()
 				case 0:
 				default:
@@ -164,6 +198,10 @@ int main(int argc, char* argv[])
 		Receive();
 
 	} while (!bExit);
+
+	// Unregister ALT-Q hotkey
+	UnregisterHotKey(NULL, 1);
+	PostMessage(g_hWnd, WM_CLOSE, 0, 0);
 
 	return 0;
 }
@@ -196,7 +234,7 @@ void ParseCommandLine(int argc, char* argv[])
 					bRgb = true;
 				}
 				else if (strstr(argv[i], "-audio") != 0) {
-					// Record system auidio with video
+					// Record system audio with video
 					bAudio = true;
 				}
 				else if (strstr(argv[i], "-ext") != 0) {
@@ -207,9 +245,22 @@ void ParseCommandLine(int argc, char* argv[])
 						g_FileExt = argstr;
 					}
 				}
+				else {
+					// FFmpeg arguments are last
+					g_FFmpegArgs = argstr;
+					if (!g_FFmpegArgs.empty()) {
+						// Extract frame rate for FFmpeg and video receive
+						size_t pos = argstr.find("-r ");
+						if (pos != std::string::npos) {
+							argstr = argstr.substr(pos+3, 2); // 2 digits for fps
+							g_FPS = atoi(argstr.c_str());
+						}
+					}
+				}
 			}
 		}
 
+		/*
 		// FFmpeg arguments are last
 		g_FFmpegArgs = argstr;
 		if (!g_FFmpegArgs.empty()) {
@@ -220,6 +271,7 @@ void ParseCommandLine(int argc, char* argv[])
 				g_FPS = atoi(argstr.c_str());
 			}
 		}
+		*/
 	}
 
 }
@@ -380,6 +432,7 @@ void StartFFmpeg()
 	// timely manner; setting this value can force ffmpeg to use a separate input thread and read
 	// packets as soon as they arrive. By default ffmpeg only do this if multiple inputs are specified.
 	// TODO : optimize ?
+	// There appears to be no documentation on what value should be set
 	outputString += " -thread_queue_size 4096";
 
 	// Overwrite output files without asking
@@ -387,8 +440,9 @@ void StartFFmpeg()
 
 	// Record system audio using the directshow audio capture device
 	// (Option set by "aa-record.bat" batch file or by F2 to start)
+	// thread_queue_size must be set on this input as well
 	if(bAudio)
-		outputString += " -f dshow -i audio=\"virtual-audio-capturer\"";
+		outputString += " -f dshow -i audio=\"virtual-audio-capturer\" -thread_queue_size 512";
 	else
 		outputString += " -an";
 
