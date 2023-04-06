@@ -7,6 +7,9 @@
 //	  F1    - start recording
 //    F2    - record with audio
 //    ESC   - stop encoding
+//    Q     - stop and quit
+//    HotKeys
+//    ALT+T - toggle tompost
 //    ALT+Q - stop and quit
 //
 // Records system audio together with the video using the DirectShow filter by Roger Pack
@@ -32,6 +35,17 @@
 //		31.03.23 - Add VirtualAudioRegister utility to register the filter
 //		01.04.23 - Add ALT+Q hotkey to stop and quit
 //				   Allows quit when minimised or when another application is full screen
+//				   Version 1.001
+//		01.04.23 - Add ALT-T hotkey to toggle topmost
+//		02.04.23 - Remove redundant rgba invert and FFmpeg vflip
+//				   Add "Q" to quit when window is visible
+//				   Show that ALT keys are Hot Keys
+//				   Restore from minimized for ALT-T topmost
+//		03.04.23 - Release receiver on FFmpeg stop
+//				   Add console handler to detect console close
+//				   Get active sender when F1 is pressed
+//				   Change keys information text to be more clear
+//				   Version 1.002
 //
 // =========================================================================
 // 
@@ -75,6 +89,7 @@ std::string g_FFmpegArgs; // User FFmpeg arguments from batch file
 std::string g_OutputFile; // Output video file
 bool bActive = false;     // Sender is active
 bool bEncoding = false;   // Encode in progress
+bool bTopMost = false;    // Topmost (ALT-T)
 bool bExit = false;       // User quit flag
 
 // Command line arguments
@@ -98,6 +113,9 @@ void Receive();
 void StartFFmpeg();
 void StopFFmpeg();
 
+BOOL WINAPI CtrlHandler(DWORD fdwCtrlType);
+
+
 int main(int argc, char* argv[])
 {
 	// Add a title to the console window to replace the full path
@@ -117,6 +135,10 @@ int main(int argc, char* argv[])
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 
+	// Register a console handler to detect [X] console close
+	// https://learn.microsoft.com/en-us/windows/console/registering-a-control-handler-function
+	SetConsoleCtrlHandler(CtrlHandler, TRUE);
+
 	// Parse command line arguments
 	// "-start"  - immediate start when sender detected and end when sender closes (default false)
 	// "-prompt" - prompt user for output file (default false)
@@ -135,41 +157,63 @@ int main(int argc, char* argv[])
 
 	// Show the sender
 	if (bActive)
-		printf("SpoutRecorder : [%s]\n", g_SenderName);
+		printf("SpoutRecorder : [%s]\n\n", g_SenderName);
 	else
 		printf("SpoutRecorder : no sender active\n");
 
 	// Show key commands
-	printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nALT+Q - stop and quit\n");
+	printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nQ     - stop and quit\n");
+	printf("Hot Keys (always detected)\n");
+	printf("ALT+T - toggle topmost\nALT+Q - stop and quit\n");
 
 	// Register Quit HotKey (ALT+Q)
 	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey?redirectedfrom=MSDN
 	RegisterHotKey(NULL, 1, MOD_NOREPEAT | MOD_ALT, 0x51); // 0x51 is 'q'
+
+	// Register Topmost HotKey (ALT+T)
+	RegisterHotKey(NULL, 2, MOD_NOREPEAT | MOD_ALT, 0x54); // 0x51 is 't'
 	
-	// Monitor windows messages to look for HotKey quit
-	// Monitor keyboard input
 	MSG msg ={0};
 	do {
-
-		// ALT+Q to quit
+		
+		// Monitor windows messages to look for HotKeys
 		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
 			if (msg.message == WM_HOTKEY) {
-				StopFFmpeg();
-				bExit = true;
+				// ALT+Q - stop and quit
+				if (msg.wParam == 1) {
+					StopFFmpeg();
+					bExit = true;
+				}
+				// ALT+T - toggle topmost
+				if (msg.wParam == 2) {
+					if (bTopMost) {
+						SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
+						bTopMost = false;
+					}
+					else {
+						SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
+						SetForegroundWindow(g_hWnd);
+						bTopMost = true;
+					}
+					ShowWindow(g_hWnd, SW_SHOWNORMAL);
+				}
 			}
 		}
 
-		// F1 / F2 / ESC
+		// Monitor keyboard input - F1 / F2 / Q / ESC
 		if (_kbhit()) {
 			switch (_getch()) {
-
 				// F1 to start recording
 				// F2 for system audio with video
 				case 0x3C: // F2
 					bAudio = true;
 				case 0x3B: // F1
+					// Not topmost
+					SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
+					bTopMost = false;
 					// If a sender is active, start encodng
-					if (bActive) {
+					if (receiver.GetActiveSender(g_SenderName)) {
+						printf("\nRecording [%s]\n", g_SenderName);
 						bStart = true;
 						StartFFmpeg();
 					}
@@ -178,15 +222,20 @@ int main(int argc, char* argv[])
 					}
 					break;
 
+				// Q to quit
+				case 0x71:
+					bExit = true;
 				// 'ESC' to stop recording
 				case 0x1B:
 					if (m_FFmpeg) {
 						StopFFmpeg();
+						bStart = false;
 						SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-						printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nALT+Q - stop and quit\n");
+						printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nQ     - stop and quit\n");
+						printf("Hot Keys (always detected)\n");
+						printf("ALT+T - toggle topmost\nALT+Q - stop and quit\n");
 					}
 					break;
-
 				// Function keys can produce an extra 0 with getch()
 				case 0:
 				default:
@@ -199,8 +248,15 @@ int main(int argc, char* argv[])
 
 	} while (!bExit);
 
+	// Stop encoding if still active
+	if (m_FFmpeg) StopFFmpeg();
+	// Close receiver and free resources
+	receiver.ReleaseReceiver();
 	// Unregister ALT-Q hotkey
 	UnregisterHotKey(NULL, 1);
+	// Unregister ALT-T hotkey
+	UnregisterHotKey(NULL, 2);
+	// Close the console window
 	PostMessage(g_hWnd, WM_CLOSE, 0, 0);
 
 	return 0;
@@ -284,10 +340,8 @@ void Receive()
 
 	// Get pixels from the sender shared texture.
 	// ReceiveImage handles sender detection, creation and update.
-	// RGBA has to be inverted due to bottom up Windows bitmap format.
-	// The bRgb flag sets RGB true and invert false for RGB pixel data
-	// and RGB false and invert true for RGBA pixel data.
-	if (receiver.ReceiveImage(pixelBuffer, g_SenderWidth, g_SenderHeight, bRgb, !bRgb)) {
+	// If bRgb is true, receive an RGB data buffer
+	if (receiver.ReceiveImage(pixelBuffer, g_SenderWidth, g_SenderHeight, bRgb)) {
 
 		// IsUpdated() returns true if the sender has changed
 		if (receiver.IsUpdated()) {
@@ -488,10 +542,6 @@ void StartFFmpeg()
 	if (bAudio)
 		outputString += " -shortest";
 
-	// Flip bottom up bitmap for rgba pixel format
-	if(!bRgb) 
-		outputString += " -vf vflip ";
-
 	outputString += " \""; // Insert a space before the output file
 	outputString += g_OutputFile;
 	outputString += "\"";
@@ -501,6 +551,7 @@ void StartFFmpeg()
 	// The STDIO lib will use block buffering when talking to
 	// a block file descriptor such as a pipe.
 	m_FFmpeg = _popen(outputString.c_str(), "wb");
+	
 	bEncoding = true; // Encoding active
 
 	// Reset console text colour
@@ -531,6 +582,26 @@ void StopFFmpeg()
 			sprintf_s(tmp, MAX_PATH, "Saved [%s]", g_OutputFile.c_str());
 			SpoutMessageBox(NULL, tmp, "Spout recorder", MB_OK | MB_TOPMOST | MB_ICONINFORMATION, 4000);
 		}
+	}
+}
+
+BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
+{
+	switch (fdwCtrlType)
+	{
+		// CTRL-CLOSE: when the console is closed by the user
+		case CTRL_CLOSE_EVENT:
+			// Stop recording
+			if (m_FFmpeg) StopFFmpeg();
+			// Close receiver and free resources
+			receiver.ReleaseReceiver();
+			// Unregister ALT-Q hotkey
+			UnregisterHotKey(NULL, 1);
+			// Unregister ALT-T hotkey
+			UnregisterHotKey(NULL, 2);
+			return TRUE;
+		default:
+			return FALSE;
 	}
 }
 
