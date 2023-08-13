@@ -44,6 +44,8 @@
 #include <string>
 #include <Shellapi.h> // for shellexecute
 #include <shlwapi.h> // for path functions
+#include <Commctrl.h> // For TaskDialogIndirect
+
 
 //
 // C++11 timer is only available for MS Visual Studio 2015 and above.
@@ -67,6 +69,12 @@
 #pragma comment(lib, "shlwapi.lib") // for path functions
 #pragma comment(lib, "Advapi32.lib") // for registry functions
 #pragma comment(lib, "Version.lib") // for version resources where necessary
+#pragma comment(lib, "Comctl32.lib") // For taskdialog
+
+// https://learn.microsoft.com/en-us/windows/win32/controls/cookbook-overview
+#pragma comment(linker,"\"/manifestdependency:type='win32' \
+name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
+processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 // SpoutUtils
 namespace spoututils {
@@ -153,11 +161,11 @@ namespace spoututils {
 	// Is file logging enabled
 	bool SPOUT_DLLEXP LogFileEnabled();
 
-	// Return the log file as a string
-	std::string SPOUT_DLLEXP GetSpoutLog(const char* filepath = nullptr);
-
 	// Return the full log file path
 	std::string SPOUT_DLLEXP GetSpoutLogPath();
+
+	// Return the log file as a string
+	std::string SPOUT_DLLEXP GetSpoutLog(const char* filepath = nullptr);
 
 	// Show the log file folder in Windows Explorer
 	void SPOUT_DLLEXP ShowSpoutLogs();
@@ -204,7 +212,7 @@ namespace spoututils {
 	// MessageBox dialog with standard arguments.
 	// Replaces an existing MessageBox call.
 	int SPOUT_DLLEXP SpoutMessageBox(HWND hwnd, LPCSTR message, LPCSTR caption, UINT uType, DWORD dwMilliseconds = 0);
-	
+
 	//
 	// Registry utilities
 	//
@@ -252,10 +260,9 @@ namespace spoututils {
 #ifdef USE_CHRONO
 	// Microseconds elapsed since epoch
 	double SPOUT_DLLEXP ElapsedMicroseconds();
-#else
+#endif
 	void SPOUT_DLLEXP StartCounter();
 	double SPOUT_DLLEXP GetCounter();
-#endif
 
 	//
 	// Private functions
@@ -272,6 +279,9 @@ namespace spoututils {
 		bool GetNVIDIAmode(const char *command, int * mode);
 		bool SetNVIDIAmode(const char *command, int mode);
 		bool ExecuteProcess(const char *path);
+
+		int SPOUT_DLLEXP MessageTaskDialog(HINSTANCE hInst, const char* content, const char* caption, DWORD dwButtons, DWORD dwMilliseconds);
+
 
 	}
 

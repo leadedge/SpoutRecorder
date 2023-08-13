@@ -124,6 +124,16 @@
 				   Change "ConPrint" to "_conprint" and use Writefile instead of cout.
 		18.01.23 - _conprint - cast WriteFile size argument to DWORD
 		19.03.23 - Update SDKversion to 2.007.010
+		Version 2.007.011
+		14.04.23 - Update SDKversion to 2.007.011
+		24.04.23 - GetTimer - independent start and end variables startcount/endcount
+		09.05.23 - Yellow console text for warnings and errors
+		17.05.23 - Set console title to executable name
+		04-07-23 - _getLogPath() - allow for getenv if not Microsoft compiler (PR #95)
+		Version 2.007.012
+		01.08.23 - Add MessageTaskDialog instead of dependence on SpoutPanel
+		04.08.23 - const WCHAR* in MessageTaskDialog
+		13.08.23 - MessageTaskDialog - remove MB_TOPMOST
 
 */
 
@@ -160,18 +170,17 @@ namespace spoututils {
 #ifdef USE_CHRONO
 	std::chrono::steady_clock::time_point start;
 	std::chrono::steady_clock::time_point end;
-#else
+#endif
 	// PC timer
 	double PCFreq = 0.0;
 	__int64 CounterStart = 0;
-	double start = 0.0;
-	double end = 0.0;
+	double startcount = 0.0;
+	double endcount = 0.0;
 	double m_FrameStart = 0.0;
-#endif
 
 	// Spout SDK version number string
 	// Major, minor, release
-	std::string SDKversion = "2.007.010";
+	std::string SDKversion = "2.007.012";
 
 	//
 	// Group: Information
@@ -251,7 +260,16 @@ namespace spoututils {
 			if (AllocConsole()) {
 				const errno_t err = freopen_s(&pCout, "CONOUT$", "w", stdout);
 				if (err == 0) {
-					SetConsoleTitleA("Spout Log");
+					char title[MAX_PATH]={};
+					if (GetModuleFileNameA(GetCurrentModule(), title, MAX_PATH) > 0) {
+						PathStripPathA(title);
+						PathRemoveExtensionA(title);
+						strcat_s(title, MAX_PATH, ".log"); // Executable name
+						SetConsoleTitleA(title);
+					}
+					else {
+						SetConsoleTitleA("Spout Log");
+					}
 					bConsole = true;
 					// Disable close button
 					// HMENU hmenu = GetSystemMenu(GetConsoleWindow(), FALSE);
@@ -376,7 +394,16 @@ namespace spoututils {
 
 		// Console output
 		if (GetConsoleWindow()) {
-			SetConsoleTitleA("Spout Log");
+			char title[MAX_PATH]={};
+			if (GetModuleFileNameA(GetCurrentModule(), title, MAX_PATH) > 0) {
+				PathStripPathA(title);
+				PathRemoveExtensionA(title);
+				strcat_s(title, MAX_PATH, ".log"); // Executable name
+				SetConsoleTitleA(title);
+			}
+			else {
+				SetConsoleTitleA("Spout Log");
+			}
 			bConsole = true;
 		}
 		else if(!bConsole)
@@ -613,7 +640,11 @@ namespace spoututils {
 	{
 		va_list args;
 		va_start(args, format);
+		// Show warning text bright yellow
+		HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+		SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 		_doLog(SPOUT_LOG_WARNING, format, args);
+		SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 		va_end(args);
 	}
 
@@ -677,6 +708,10 @@ namespace spoututils {
 			// Console logging
 			if (bEnableLog && bConsole) {
 				FILE* out = stdout; // Console output
+				// Yellow text for warnings and errors
+				HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+				if (level == SPOUT_LOG_WARNING || level == SPOUT_LOG_ERROR)
+				    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 				if (level != SPOUT_LOG_NONE) {
 					// Show log level
 					fprintf(out, "[%s] ", _levelName(level).c_str());
@@ -685,7 +720,8 @@ namespace spoututils {
 				vfprintf(out, format, args);
 				// Newline
 				fprintf(out, "\n");
-
+				// Reset white text
+				SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 			} // end console log
 
 			// File logging
@@ -778,8 +814,6 @@ namespace spoututils {
 
 	}
 
-
-
 	// ---------------------------------------------------------
 	// Function: SpoutMessageBox
 	// Messagebox with standard arguments and optional timeout
@@ -787,62 +821,12 @@ namespace spoututils {
 	// Replaces an existing MessageBox call.
 	int SpoutMessageBox(HWND hwnd, LPCSTR message, LPCSTR caption, UINT uType, DWORD dwMilliseconds)
 	{
-		int iRet = 0;
-		char path[MAX_PATH]={};
-
-		std::string spoutmessage = message;
-
-		// Find if there has been a Spout installation with an install path for SpoutPanel.exe
-		if (ReadPathFromRegistry(HKEY_CURRENT_USER, "Software\\Leading Edge\\SpoutPanel", "InstallPath", path)) {
-			// Does SpoutPanel exist ?
-			if (_access(path, 0) != -1) {
-
-				//
-				// Add optional arguments
-				//
-
-				// Text dialog caption
-				if (caption && *caption) {
-					spoutmessage += " /CAPTION ";
-					spoutmessage += caption;
-				}
-
-				// If a timeout has been specified, add the timeout option and value
-				// SpoutPanel handles the timeout delay
-				if (dwMilliseconds > 0) {
-					spoutmessage += " /TIMEOUT ";
-					spoutmessage += std::to_string((unsigned long long)dwMilliseconds);
-				}
-
-				SHELLEXECUTEINFOA ShExecInfo;
-				ZeroMemory(&ShExecInfo, sizeof(ShExecInfo));
-				ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
-				ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
-				ShExecInfo.hwnd = NULL;
-				ShExecInfo.lpVerb = NULL;
-				ShExecInfo.lpFile = (LPCSTR)path;
-				ShExecInfo.lpParameters = (LPCSTR)spoutmessage.c_str();
-				ShExecInfo.lpDirectory = NULL;
-				ShExecInfo.nShow = SW_SHOW;
-				ShExecInfo.hInstApp = NULL;
-				ShellExecuteExA(&ShExecInfo);
-				// Returns straight away here but multiple instances of SpoutPanel
-				// are prevented in it's WinMain procedure by the mutex.
-			}
-			else {
-				// Registry path OK but no SpoutPanel.exe
-				// Use a standard untimed topmost messagebox
-				iRet = MessageBoxA(hwnd, spoutmessage.c_str(), caption, (uType | MB_TOPMOST));
-			}
-		}
-		else {
-			// No SpoutPanel path registered
-			// Use a standard untimed topmost messagebox
-			iRet = MessageBoxA(hwnd, spoutmessage.c_str(), caption, (uType | MB_TOPMOST));
-		}
-
-		return iRet;
+		// hwnd no longer used with taskdialog
+		// Quiet unreferenced parameter
+		hwnd = hwnd; 
+		return MessageTaskDialog(NULL, message, caption, uType, dwMilliseconds);
 	}
+
 
 	//
 	// Group: Registry utilities
@@ -857,8 +841,7 @@ namespace spoututils {
 	{
 		if (!subkey || !*subkey || !valuename || !*valuename || !pValue)
 			return false;
-		
-
+	
 		DWORD dwKey = 0;
 		DWORD dwSize = sizeof(DWORD);
 		const LONG regres = RegGetValueA(hKey, subkey, valuename, RRF_RT_REG_DWORD, &dwKey, pValue, &dwSize);
@@ -1083,14 +1066,14 @@ namespace spoututils {
 	// ---------------------------------------------------------
 	// Function: 
 	// Start timing period
-	// void StartTiming() {
+	// void StartTiming()
 
 	// ---------------------------------------------------------
 	// Function: 
 	// Stop timing and return microseconds elapsed.
 	//
 	// Code console output can be enabled for quick timing tests.
-	// double EndTiming() {
+	// double EndTiming()
 
 	// ---------------------------------------------------------
 	// Function: ElapsedMicroseconds
@@ -1147,15 +1130,17 @@ namespace spoututils {
 #else
 	// Start timing period
 	void StartTiming() {
-		start = GetCounter();
+		// startcount = GetCounter();
+		StartCounter();
 	}
 
 	// Stop timing and return microseconds elapsed.
 	// Console output can be enabled for quick timing tests.
 	double EndTiming() {
-		end = GetCounter();
-		return (end-start);
+		endcount = GetCounter();
+		return (endcount-startcount);
 	}
+#endif
 
 	// -----------------------------------------------
 	// Set counter start
@@ -1189,8 +1174,6 @@ namespace spoututils {
 			return 0.0;
 		}
 	}
-
-#endif
 
 
 	//
@@ -1262,7 +1245,11 @@ namespace spoututils {
 			size_t len = 0;
 			bool bSuccess = true;
 			errno_t err = 0;
-			err = _dupenv_s(&appdatapath, &len, "APPDATA");
+			#if defined(_MSC_VER)
+				err = _dupenv_s(&appdatapath, &len, "APPDATA");
+			#else
+				appdatapath = getenv("APPDATA");
+			#endif
 			if (err == 0 && appdatapath) {
 				strcpy_s(logpath, MAX_PATH, appdatapath);
 				strcat_s(logpath, MAX_PATH, "\\Spout");
@@ -1509,6 +1496,130 @@ namespace spoututils {
 
 			return bRet;
 		}
+
+
+		// MessageBox replacement
+		int MessageTaskDialog(HINSTANCE hInst, const char* content, const char* caption, DWORD dwButtons, DWORD dwMilliseconds)
+		{
+			// Use a wide string to avoid a pre-sized buffer
+			int size_needed = MultiByteToWideChar(CP_UTF8, 0, content, (int)strlen(content), NULL, 0);
+			std::wstring wstrTemp(size_needed, 0);
+			MultiByteToWideChar(CP_UTF8, 0, content, (int)strlen(content), &wstrTemp[0], size_needed);
+
+			// Caption
+			size_needed = MultiByteToWideChar(CP_UTF8, 0, caption, (int)strlen(caption), NULL, 0);
+			std::wstring wstrCaption(size_needed, 0);
+			if (caption) {
+				MultiByteToWideChar(CP_UTF8, 0, caption, (int)strlen(caption), &wstrCaption[0], size_needed);
+			}
+			else {
+				wstrCaption = L" ";
+			}
+
+			// https://learn.microsoft.com/en-us/windows/win32/api/commctrl/nf-commctrl-taskdialog
+			// TDCBF_OK_BUTTON 1
+			// TDCBF_YES_BUTTON 2
+			// TDCBF_NO_BUTTON 4
+			// TDCBF_CANCEL_BUTTON 8
+
+			// TODO - support topmost
+			LONG dwl = (LONG)dwButtons ^ MB_TOPMOST;
+
+			DWORD dwCommonButtons = MB_OK;
+			if ((dwl ^ MB_OK) == 0)
+				dwCommonButtons = MB_OK;
+			else if ((dwl ^ MB_OKCANCEL) == 0)
+				dwCommonButtons = TDCBF_OK_BUTTON | TDCBF_CANCEL_BUTTON;
+			else if ((dwl ^ MB_YESNOCANCEL) == 0)
+				dwCommonButtons = TDCBF_YES_BUTTON | TDCBF_NO_BUTTON | TDCBF_CANCEL_BUTTON;
+			else if ((dwl ^ MB_YESNO) == 0)
+				dwCommonButtons = TDCBF_YES_BUTTON | TDCBF_NO_BUTTON;
+			else
+				dwCommonButtons = MB_OK;
+
+			// MB_ICONEXCLAMATION
+			// MB_ICONWARNING
+			// MB_ICONINFORMATION
+			// MB_ICONASTERISK
+			// MB_ICONQUESTION
+			// MB_ICONSTOP
+			// MB_ICONERROR
+			// MB_ICONHAND
+			// TD_WARNING_ICON , TD_ERROR_ICON, TD_INFORMATION_ICON, TD_SHIELD_ICON      
+			WCHAR* wMainIcon = TD_INFORMATION_ICON;
+			const WCHAR* wMainInstruction = L"Information";
+
+			if ((dwl ^ MB_ICONERROR) == 0) {
+				wMainIcon = TD_SHIELD_ICON;
+				wMainInstruction = L"Error";
+			}
+			if ((dwl ^ MB_ICONWARNING) == 0) {
+				wMainIcon = TD_WARNING_ICON;
+				wMainInstruction = L"Warning";
+			}
+			if ((dwl ^ MB_ICONEXCLAMATION) == 0) {
+				wMainIcon = TD_WARNING_ICON;
+				wMainInstruction = L"Warning";
+			}
+			if ((dwl ^ MB_YESNOCANCEL) == 0) {
+				wMainIcon = TD_INFORMATION_ICON;
+				wMainInstruction = L"Question";
+			}
+			if ((dwl ^ MB_YESNO) == 0) {
+				wMainIcon = TD_INFORMATION_ICON;
+				wMainInstruction = L"Question";
+			}
+			if ((dwl ^ MB_ICONQUESTION) == 0) {
+				wMainIcon = TD_INFORMATION_ICON;
+				wMainInstruction = L"Question";
+			}
+
+			int nButtonPressed        = 0;
+			TASKDIALOGCONFIG config   ={ 0 };
+			config.cbSize             = sizeof(config);
+			config.hwndParent         = NULL;
+			config.hInstance          = hInst;
+			config.pszWindowTitle = wstrCaption.c_str();
+			config.pszMainIcon        = wMainIcon;
+			config.pszMainInstruction = wMainInstruction;
+			config.pszContent         = wstrTemp.c_str();
+			config.dwCommonButtons    = dwCommonButtons;
+			config.cxWidth            = 0; // auto width - requires TDF_SIZE_TO_CONTENT
+
+			// Msec timeout
+			// https://stackoverflow.com/questions/51985841/custom-message-box-that-automatically-disappears
+			if (dwMilliseconds > 0) {
+
+				config.dwFlags = TDF_SIZE_TO_CONTENT | TDF_CALLBACK_TIMER;
+				config.lpCallbackData = reinterpret_cast<LONG_PTR>(&dwMilliseconds);
+
+				// Assign a lambda function as callback.
+				config.pfCallback = [](HWND hwnd, UINT uNotification, WPARAM wParam, LPARAM lParam, LONG_PTR dwRefData)
+				{
+					lParam = lParam; // Quiet unreferenced parameter
+					if (uNotification == TDN_TIMER)
+					{
+						DWORD* pTimeout = reinterpret_cast<DWORD*>(dwRefData);  // = tc.lpCallbackData
+						DWORD timeElapsed = static_cast<DWORD>(wParam);
+						if (*pTimeout && timeElapsed >= *pTimeout) {
+							*pTimeout = 0; // Make sure we don't send the button message multiple times.
+							SendMessage(hwnd, TDM_CLICK_BUTTON, IDOK, 0);
+						}
+					}
+					return S_OK;
+				};
+			}
+			else {
+				config.dwFlags = TDF_SIZE_TO_CONTENT;
+			}
+
+			TaskDialogIndirect(&config, &nButtonPressed, NULL, NULL);
+
+			// IDCANCEL, IDNO, IDOK, IDRETRY, IDYES
+			return nButtonPressed;
+
+		}
+
 		
 	} // end private namespace
 

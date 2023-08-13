@@ -114,6 +114,8 @@ class SPOUT_DLLEXP spoutFrameCount {
 	bool CheckAccess();
 	// Allow access after gaining ownership
 	void AllowAccess();
+	// Test for keyed mutex
+	bool IsKeyedMutex(ID3D11Texture2D* D3D11texture);
 
 	//
 	// Sync events
@@ -125,6 +127,10 @@ class SPOUT_DLLEXP spoutFrameCount {
 	bool WaitFrameSync(const char *name, DWORD dwTimeout = 0);
 	// Close sync event
 	void CloseFrameSync();
+	// Enable / disable frame sync
+	void EnableFrameSync(bool bSync = true);
+	// Check for frame sync option
+	bool IsFrameSyncEnabled();
 
 protected:
 
@@ -134,11 +140,10 @@ protected:
 	// DX11 texture keyed mutex checks
 	bool CheckKeyedAccess(ID3D11Texture2D* D3D11texture);
 	bool AllowKeyedAccess(ID3D11Texture2D* D3D11texture);
-	bool IsKeyedMutex(ID3D11Texture2D* D3D11texture);
 
 	// Frame count semaphore
 	bool m_bFrameCount; // Registry setting of frame count
-	bool m_bDisabled; // application disable
+	bool m_bCountDisabled; // application disable
 	bool m_bIsNewFrame; // received frame is new
 
 	HANDLE m_hCountSemaphore; // semaphore handle
@@ -151,6 +156,7 @@ protected:
 	double m_lastFrame;
 
 	// Sender frame timing
+	double m_SystemFps;
 	double m_SenderFps;
 	void UpdateSenderFps(long framecount = 0);
 
@@ -160,6 +166,7 @@ protected:
 	void EndTimePeriod();
 
 	// Sync event
+	bool m_bFrameSync;
 	HANDLE m_hSyncEvent;
 	void OpenFrameSync(const char* SenderName);
 

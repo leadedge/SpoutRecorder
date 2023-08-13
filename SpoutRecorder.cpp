@@ -4,13 +4,15 @@
 // Encodes Spout input to a video file using FFmpeg by way of a pipe.
 // Resolution and speed are improved over using SpoutCam as a source
 //
-//	  F1    - start recording
-//    F2    - record with audio
-//    ESC   - stop encoding
-//    Q     - stop and quit
-//    HotKeys
-//    ALT+T - toggle tompost
-//    ALT+Q - stop and quit
+//    If console window is visible
+//	  F1     - start recording
+//    F2     - start recording with system audio
+//    ESC    - stop recording
+//    T      - toggle tompost
+//    Q      - stop and quit
+//
+//    HotKey (always active)
+//    ALT+Q  - stop and quit
 //
 // Records system audio together with the video using the DirectShow filter by Roger Pack
 // https://github.com/rdp/virtual-audio-capture-grabber-device
@@ -46,6 +48,14 @@
 //				   Get active sender when F1 is pressed
 //				   Change keys information text to be more clear
 //				   Version 1.002
+//		10.08.23 - Update to 2.007.011 SpoutDX files
+//				   FlashWindow notification when recording
+//				   Auto-detect sneder if started without one
+//				   Handle sender change
+//		11.08.23   Use events for keys and mouse
+//				   Remove "ALT+T" topmost hotkey, replace with "T" key
+//				   Display menu after sender change
+//				   Version 1.003
 //
 // =========================================================================
 // 
@@ -67,12 +77,12 @@
 // along with this program. If not, see < http://www.gnu.org/licenses/>.
 // 
 // ========================================================================
-
+//
 #include <windows.h>
 #include <stdio.h>
 #include <conio.h>
 #include <iostream>
-#include "SpoutDX\SpoutDX.h"
+#include "SpoutDX/SpoutDX.h"
 
 // Global Variables:
 spoutDX receiver;                     // Receiver object
@@ -82,6 +92,10 @@ char g_SenderName[256]={};            // Received sender name
 unsigned int g_SenderWidth = 0;       // Received sender width
 unsigned int g_SenderHeight = 0;      // Received sender height
 HWND g_hWnd = NULL;                   // Console window handle
+FLASHWINFO fwi={0};                   // For flashing title bar and taskbar icon
+// https://learn.microsoft.com/en-us/windows/console/reading-input-buffer-events
+DWORD fdwSaveOldMode = 0;
+HANDLE hStdIn = NULL;
 
 // For FFmpeg recording
 FILE* m_FFmpeg = nullptr; // FFmpeg pipe
@@ -94,12 +108,15 @@ bool bExit = false;       // User quit flag
 
 // Command line arguments
 // -start  - Immediate start encoding (default false)
-// -prompt - Pronpt user with file name entry dialog (default false)
+// -hide   - Hide the console when recording (show on taskbar)
+// -prompt - Prompt user with file name entry dialog (default false)
 // -rgb    - RGB input pixel format instead of default RGBA
 // -audio  - Record speaker audio using directshow virtual-audio-device 
 // -ext    - File type (mp4, mkv, avi, mov etc - default mp4)
+bool bCommandLine  = false;
 bool bStart  = false;
-bool bPrompt = false;
+bool bHide   = false;
+bool bPrompt = true;
 bool bRgb    = false;
 bool bAudio  = false;
 std::string g_FileExt = "mp4";
@@ -112,32 +129,46 @@ void ParseCommandLine(int argc, char* argv[]);
 void Receive();
 void StartFFmpeg();
 void StopFFmpeg();
-
+void ShowKeyCommands();
 BOOL WINAPI CtrlHandler(DWORD fdwCtrlType);
+void SetHotKeys();
+void ClearHotKeys();
+void Close();
 
 
 int main(int argc, char* argv[])
 {
-	// Add a title to the console window to replace the full path
+
+	// For console window functions
 	g_hWnd = GetConsoleWindow();
-	SetWindowTextA(g_hWnd, "SpoutRecorder");
+
+	// Prevent Edit popup for right mouse click
+	HMENU hMenu = GetSystemMenu(g_hWnd, FALSE);
+	HMENU hSubMenu = GetSubMenu(hMenu, 7);
+	DestroyMenu(hSubMenu);
+	RemoveMenu(hMenu, 7, MF_BYPOSITION); 
 
 	// Add an icon from shell32.dll to the console window.
 	// If activated from a batch file, the cmd.exe icon is shown in the task bar
 	HICON hIconBig = nullptr;
 	HICON hIconSmall = nullptr;
+	// https://help4windows.starlink.us/windows_7_shell32_dll.shtml
+	// 176 - start arrow
+	// 115 - film frame
+	// 151 - CD
+	// 153 - CD
+	// 119 - CD music
+	// 112 - start button small
 	ExtractIconExA("%SystemRoot%\\system32\\SHELL32.dll", 176, &hIconBig, &hIconSmall, 1);
 	SendMessage(g_hWnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
 	SendMessage(g_hWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
 
-	// Show our text bright yellow - a different colour to FFmpeg
-	// https://learn.microsoft.com/en-us/windows/console/setconsoletextattribute
-	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-
 	// Register a console handler to detect [X] console close
 	// https://learn.microsoft.com/en-us/windows/console/registering-a-control-handler-function
 	SetConsoleCtrlHandler(CtrlHandler, TRUE);
+
+	// Register HotKeys
+	SetHotKeys();
 
 	// Parse command line arguments
 	// "-start"  - immediate start when sender detected and end when sender closes (default false)
@@ -147,99 +178,149 @@ int main(int argc, char* argv[])
 	// "-ext"    - file type required by codec (default "mp4")
 	// FFmpeg arguments are last (see "DATA\Scripts\aa-record.bat")ff
 	if (argc > 1) {
+		bCommandLine = true;
 		ParseCommandLine(argc, argv);
+		// Hide console command line option
+		if (bHide) {
+			ShowWindow(g_hWnd, SW_HIDE);
+			ShowWindow(g_hWnd, SW_MINIMIZE);
+			ShowWindow(g_hWnd, SW_SHOWMINIMIZED);
+		}
 	}
 
-	// Is a sender running ?
-	if (receiver.GetActiveSender(g_SenderName)) {
-		bActive = true;
-	}
+	// Show console title and key commands
+	ShowKeyCommands();
 
-	// Show the sender
-	if (bActive)
-		printf("SpoutRecorder : [%s]\n\n", g_SenderName);
-	else
-		printf("SpoutRecorder : no sender active\n");
+	// Set up the flashwindow recording status
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-flashwinfo
+	fwi.cbSize = sizeof(fwi);
+	fwi.hwnd = g_hWnd;
+	fwi.uCount = 0;
+	fwi.dwTimeout = 0;
 
-	// Show key commands
-	printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nQ     - stop and quit\n");
-	printf("Hot Keys (always detected)\n");
-	printf("ALT+T - toggle topmost\nALT+Q - stop and quit\n");
-
-	// Register Quit HotKey (ALT+Q)
-	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey?redirectedfrom=MSDN
-	RegisterHotKey(NULL, 1, MOD_NOREPEAT | MOD_ALT, 0x51); // 0x51 is 'q'
-
-	// Register Topmost HotKey (ALT+T)
-	RegisterHotKey(NULL, 2, MOD_NOREPEAT | MOD_ALT, 0x54); // 0x51 is 't'
+	// Monitor console input
+	// https://learn.microsoft.com/en-us/windows/console/reading-input-buffer-events
+	// Get the standard input handle.
+	hStdIn = GetStdHandle(STD_INPUT_HANDLE);
+	// Save the current input mode, to be restored on exit.
+	GetConsoleMode(hStdIn, &fdwSaveOldMode);
+	// Enable the window and mouse input events.
+	DWORD fdwMode = ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_INSERT_MODE | ENABLE_EXTENDED_FLAGS;
 	
+	char title[256];
+	DWORD cNumRead = 0;
+	INPUT_RECORD irInBuf={ 0 };
+	DWORD NumberOfEvents = 0;
 	MSG msg ={0};
 	do {
-		
+
+		// Commands from other programs are the caption
+		// Only "close" currently supported
+		if (GetWindowTextLengthA(g_hWnd) < strlen("SpoutRecorder")) {
+			GetWindowTextA(g_hWnd, title, 256);
+			if (strcmp(title, "close") == 0) {
+				Close();
+				PostMessage(g_hWnd, WM_CLOSE, 0, 0);
+			}
+			SetWindowTextA(g_hWnd, "SpoutRecorder");
+		}
+
+		SetConsoleMode(hStdIn, fdwMode);
+		GetNumberOfConsoleInputEvents(hStdIn, &NumberOfEvents);
+		if(NumberOfEvents > 0) {
+			if (ReadConsoleInput(hStdIn, &irInBuf, 1, &cNumRead)) {
+				switch (irInBuf.EventType) 	{
+
+				case KEY_EVENT: // keyboard input 
+					if (irInBuf.Event.KeyEvent.bKeyDown) {
+						if (irInBuf.Event.KeyEvent.wRepeatCount == 1) {
+							WORD vCode = irInBuf.Event.KeyEvent.wVirtualKeyCode;
+							if (vCode > 111) { // > F1
+								// F1 - start recording
+								// F2 - start recording with audio
+								if (vCode == 112 || vCode == 113) {
+									// Record system audio
+									if (vCode == 113)
+										bAudio = true;
+									// Not topmost
+									SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
+									bTopMost = false;
+									// If a sender is active, start encodng
+									if (bActive) {
+										bStart = true;
+										bPrompt = false;
+										StartFFmpeg();
+									}
+									else {
+										SpoutMessageBox(NULL, "Start a sender to record", "Warning", MB_ICONWARNING | MB_TOPMOST);
+										ShowKeyCommands();
+									}
+								}
+							} // endif vCode
+							else {
+								CHAR key = irInBuf.Event.KeyEvent.uChar.AsciiChar;
+								// printf("0x%X\n", key);
+
+								// ESC - stop encoding
+								if (key == 0x1B) {
+									if (m_FFmpeg) {
+										StopFFmpeg();
+										bStart = false;
+										ShowKeyCommands();
+									}
+								}
+
+								// T - toggle topmost
+								if (key == 0x74) {
+									if (bTopMost) {
+										SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
+										bTopMost = false;
+									}
+									else {
+										SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
+										SetForegroundWindow(g_hWnd);
+										bTopMost = true;
+									}
+									ShowKeyCommands();
+								}
+
+								// Q - quit and close console
+								if (key == 0x71) {
+									StopFFmpeg();
+									bExit = true;
+								}
+
+							}
+						}
+					}
+					break;
+
+				case MOUSE_EVENT:
+					// Right click - select sender if not encoding
+					if (irInBuf.Event.MouseEvent.dwButtonState == 2 && !bEncoding) {
+						receiver.SelectSender();
+					}
+					break;
+
+				case FOCUS_EVENT:
+				case MENU_EVENT:
+				case WINDOW_BUFFER_SIZE_EVENT:
+				default:
+					break;
+				}
+			}
+		}
+
 		// Monitor windows messages to look for HotKeys
+		ZeroMemory(&msg, sizeof(msg));
 		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+			// Test for HotKeys
 			if (msg.message == WM_HOTKEY) {
 				// ALT+Q - stop and quit
 				if (msg.wParam == 1) {
 					StopFFmpeg();
 					bExit = true;
 				}
-				// ALT+T - toggle topmost
-				if (msg.wParam == 2) {
-					if (bTopMost) {
-						SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
-						bTopMost = false;
-					}
-					else {
-						SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
-						SetForegroundWindow(g_hWnd);
-						bTopMost = true;
-					}
-					ShowWindow(g_hWnd, SW_SHOWNORMAL);
-				}
-			}
-		}
-
-		// Monitor keyboard input - F1 / F2 / Q / ESC
-		if (_kbhit()) {
-			switch (_getch()) {
-				// F1 to start recording
-				// F2 for system audio with video
-				case 0x3C: // F2
-					bAudio = true;
-				case 0x3B: // F1
-					// Not topmost
-					SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
-					bTopMost = false;
-					// If a sender is active, start encodng
-					if (receiver.GetActiveSender(g_SenderName)) {
-						printf("\nRecording [%s]\n", g_SenderName);
-						bStart = true;
-						StartFFmpeg();
-					}
-					else {
-						printf("Start a sender to record\n");
-					}
-					break;
-
-				// Q to quit
-				case 0x71:
-					bExit = true;
-				// 'ESC' to stop recording
-				case 0x1B:
-					if (m_FFmpeg) {
-						StopFFmpeg();
-						bStart = false;
-						SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-						printf("F1    - start recording\nF2    - record with audio\nESC   - stop recording\nQ     - stop and quit\n");
-						printf("Hot Keys (always detected)\n");
-						printf("ALT+T - toggle topmost\nALT+Q - stop and quit\n");
-					}
-					break;
-				// Function keys can produce an extra 0 with getch()
-				case 0:
-				default:
-					break;
 			}
 		}
 
@@ -248,18 +329,60 @@ int main(int argc, char* argv[])
 
 	} while (!bExit);
 
-	// Stop encoding if still active
-	if (m_FFmpeg) StopFFmpeg();
-	// Close receiver and free resources
-	receiver.ReleaseReceiver();
-	// Unregister ALT-Q hotkey
-	UnregisterHotKey(NULL, 1);
-	// Unregister ALT-T hotkey
-	UnregisterHotKey(NULL, 2);
+	// Stop encoding, close receiver and free resources
+	Close();
+
 	// Close the console window
 	PostMessage(g_hWnd, WM_CLOSE, 0, 0);
 
 	return 0;
+}
+
+void ShowKeyCommands()
+{
+	// Clear the console
+	system("cls");
+
+	// Show our text bright yellow - a different colour to FFmpeg
+	// https://learn.microsoft.com/en-us/windows/console/setconsoletextattribute
+	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+
+	// Set console font size
+	CONSOLE_FONT_INFOEX cfi={ 0 };
+	cfi.cbSize = sizeof(cfi);
+	GetCurrentConsoleFontEx(g_hConsole, false, &cfi);
+	cfi.dwFontSize.Y = 16; // Height (width follows height)
+	SetCurrentConsoleFontEx(g_hConsole, FALSE, &cfi);
+
+	// Is a sender running ?
+	if (receiver.GetActiveSender(g_SenderName)) {
+		printf("[%s]\nRight click - select sender\n\n", g_SenderName);
+	}
+	else {
+		printf("Start a sender to record\n\n");
+	}
+	SetWindowTextA(g_hWnd, "SpoutRecorder");
+
+	// Show key commands
+	printf("Window keys\n");
+	if (!bTopMost) {
+		printf("F1     - start recording\n"
+			   "F2     - start recording with system audio\n"
+			   "ESC    - stop recording\n"
+			   "T      - topmost\n"
+			   "Q      - stop and quit\n\n");
+	}
+	else {
+		printf("F1     - start recording\n"
+			   "F2     - start recording with system audio\n"
+			   "ESC    - stop recording\n"
+			   "T      - not topmost\n"
+			   "Q      - stop and quit\n\n");
+	}
+	printf("Hot Key\n");
+	printf("ALT+Q  - stop and quit\n");
+
 }
 
 
@@ -279,7 +402,12 @@ void ParseCommandLine(int argc, char* argv[])
 				if (strstr(argv[i], "-start") != 0) {
 					// Command line immediate start
 					bStart = true;
+					bHide = false;
 					bPrompt = false;
+				}
+				else if (strstr(argv[i], "-hide") != 0) {
+					// Hide window on record
+					bHide = true;
 				}
 				else if (strstr(argv[i], "-prompt") != 0) {
 					// Prompt for file name entry
@@ -315,28 +443,15 @@ void ParseCommandLine(int argc, char* argv[])
 				}
 			}
 		}
-
-		/*
-		// FFmpeg arguments are last
-		g_FFmpegArgs = argstr;
-		if (!g_FFmpegArgs.empty()) {
-			// Extract frame rate for FFmpeg and video receive
-			size_t pos = argstr.find("-r ");
-			if (pos != std::string::npos) {
-				argstr = argstr.substr(pos+3, 2); // 2 digits for fps
-				g_FPS = atoi(argstr.c_str());
-			}
-		}
-		*/
 	}
-
 }
 
 
 void Receive()
 {
-	// For testing
-	// StartTiming();
+	// No senders
+	if(receiver.GetSenderCount() == 0)
+		return;
 
 	// Get pixels from the sender shared texture.
 	// ReceiveImage handles sender detection, creation and update.
@@ -345,15 +460,28 @@ void Receive()
 
 		// IsUpdated() returns true if the sender has changed
 		if (receiver.IsUpdated()) {
-
-			// Stop FFmpeg if already encoding and the stream size has changed.
-			// Return the user to the start.
-			if (bEncoding) {
-				printf("Sender size changed - stopping FFmpeg\n");
-				StopFFmpeg();
-				bEncoding = false;
-				bStart = false;
-				bExit = true;
+			if (g_SenderName[0]) {
+				// Different sender selected
+				if (receiver.GetSenderCount() > 1
+					&& strcmp(g_SenderName, receiver.GetSenderName()) != 0) {
+					strcpy_s((char*)g_SenderName, 256, receiver.GetSenderName());
+					if (bEncoding) {
+						StopFFmpeg();
+						bEncoding = false;
+						bStart = false;
+						bExit = false;
+					}
+					ShowKeyCommands();
+					return;
+				}
+			}
+			else {
+				// New sender selected
+				strcpy_s((char*)g_SenderName, 256, receiver.GetSenderName());
+				if (receiver.GetSenderCount() == 1) {
+					bActive = true;
+					ShowKeyCommands();
+				}
 			}
 
 			// Update the sender name - it could be different
@@ -365,16 +493,27 @@ void Receive()
 
 			// Update the receiving buffer
 			if (pixelBuffer) delete[] pixelBuffer;
-			if(bRgb)
+			if (bRgb)
 				pixelBuffer = new unsigned char[g_SenderWidth * g_SenderHeight * 3];
 			else
 				pixelBuffer = new unsigned char[g_SenderWidth * g_SenderHeight * 4];
 
+			// Stop FFmpeg if already encoding and the stream size has changed.
+			// Return the user to the start.
+			if (bEncoding) {
+				StopFFmpeg();
+				bEncoding = false;
+				bStart = false;
+				ShowKeyCommands();
+			}
+
 			bActive = true;
 
 			// Start FFmpeg for F1 or the command line "-start" argument
-			if (bStart)
+			if (bStart) {
 				StartFFmpeg();
+			}
+
 		}
 		else if (pixelBuffer && m_FFmpeg) {
 			if (bEncoding) {
@@ -391,23 +530,31 @@ void Receive()
 				bExit = true;
 			}
 		}
+		bActive = true;
 	}
 	else {
-		// No sender found or sender has closed
+
 		// If FFmpeg is encoding, stop and exit
 		if (bEncoding) {
-			printf("Sender closed - stopping FFmpeg\n");
+			MessageBoxA(NULL, "Sender closed - stopping FFmpeg", "Warning", MB_OK | MB_ICONWARNING | MB_TOPMOST);
 			StopFFmpeg();
 			bStart = false;
-			bExit = true;
+			bActive = false;
+			ShowKeyCommands();
 		}
+
+		// Sender has closed
+		if (g_SenderName[0] && !receiver.sendernames.FindSenderName(g_SenderName)) {
+			// MessageBoxA(NULL, "Sender has closed", "Warning", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+			g_SenderName[0] = 0;
+			bActive = false;
+			ShowKeyCommands();
+		}
+		// No sender
 	}
 
-	// For testing
-	// double elapsed = EndTiming();
-	// printf("%.3f\n", elapsed);
-
 	// Limit input frame rate for FFmpeg
+	// to the video frame rate
 	receiver.HoldFps(g_FPS);
 
 }
@@ -460,7 +607,6 @@ void StartFFmpeg()
 		// User file name entry
 		g_OutputFile = filePath;
 	}
-	// printf("%s\n", g_OutputFile.c_str());
 
 	// FFmpeg location
 	char ffmpegPath[MAX_PATH];
@@ -471,9 +617,8 @@ void StartFFmpeg()
 
 	// Does ffmpeg.exe exist there ?
 	outputString += "\\ffmpeg.exe";
-	// printf("FFmpeg location\n%s\n", outputString.c_str());
 	if (_access(outputString.c_str(), 0) == -1) {
-		MessageBoxA(NULL, "FFmpeg not found\nRefer to the documentation", "Warning", MB_OK | MB_TOPMOST);
+		MessageBoxA(NULL, "FFmpeg not found", "Warning", MB_ICONWARNING | MB_TOPMOST);
 		return;
 	}
 
@@ -557,6 +702,10 @@ void StartFFmpeg()
 	// Reset console text colour
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 
+	// Start flashing to show recording status
+	fwi.dwFlags = FLASHW_ALL | FLASHW_TIMER;
+	FlashWindowEx(&fwi);
+
 	// Code in Receive() is activated
 
 } // end StartFFmpeg
@@ -576,14 +725,20 @@ void StopFFmpeg()
 		Sleep(10);
 		bEncoding = false;
 		SetCursor(LoadCursor(NULL, IDC_ARROW));
-		if (bPrompt) {
-			// Show the user the saved file details for 4 seconds
+		
+		// Stop flashing
+		fwi.dwFlags = FLASHW_STOP;
+		FlashWindowEx(&fwi);
+
+		// Show the user the saved file details for 3 seconds
+		if(!bCommandLine) {
 			char tmp[MAX_PATH];
 			sprintf_s(tmp, MAX_PATH, "Saved [%s]", g_OutputFile.c_str());
-			SpoutMessageBox(NULL, tmp, "Spout recorder", MB_OK | MB_TOPMOST | MB_ICONINFORMATION, 4000);
+			SpoutMessageBox(NULL, tmp, "Spout recorder", MB_OK | MB_TOPMOST | MB_ICONINFORMATION, 3000);
 		}
 	}
 }
+
 
 BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 {
@@ -591,18 +746,40 @@ BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 	{
 		// CTRL-CLOSE: when the console is closed by the user
 		case CTRL_CLOSE_EVENT:
-			// Stop recording
-			if (m_FFmpeg) StopFFmpeg();
-			// Close receiver and free resources
-			receiver.ReleaseReceiver();
-			// Unregister ALT-Q hotkey
-			UnregisterHotKey(NULL, 1);
-			// Unregister ALT-T hotkey
-			UnregisterHotKey(NULL, 2);
+			// Stop encoding, close receiver and free resources
+			Close();
 			return TRUE;
 		default:
 			return FALSE;
 	}
+
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey?redirectedfrom=MSDN
+void SetHotKeys()
+{
+	// Register Quit HotKey (ALT+Q)
+	RegisterHotKey(NULL, 1, MOD_NOREPEAT | MOD_ALT, 0x51); // 0x51 is 'q'
+	// Other hotkeys can be registered
+}
+
+void ClearHotKeys()
+{
+	// 1 - Quit    (ALT+Q)
+	UnregisterHotKey(NULL, 1);
+}
+
+void Close()
+{
+	// Stop recording
+	if (m_FFmpeg) StopFFmpeg();
+	// Close receiver and free resources
+	receiver.ReleaseReceiver();
+	ClearHotKeys();
+	// Reset console text colour
+	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+	// Restore console input mode
+	SetConsoleMode(hStdIn, fdwSaveOldMode);
 }
 
 // The end ..
