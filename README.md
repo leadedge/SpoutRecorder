@@ -62,12 +62,16 @@ A batch file "aa-record.bat", located in the "DATA\Scripts" folder. Edit the fil
 
 ### Program communication
 
-As well as execution by way of command line, programs can communicate while SpoutRecorder is open by finding the window handle and setting the window caption.
+As well as execution by way of command line, programs can communicate by finding the "SpoutRecorder" window handle and setting the window caption. Recording status can be obtained by finding the "Recorder" window.
 
 For example
 
-&nbsp;&nbsp;&nbsp;&nbsp;HWND hrec = FindWindowA(NULL, "Recording");\
-&nbsp;&nbsp;&nbsp;&nbsp;SetWindowTextA(hrec, "quit");
+&nbsp;&nbsp;&nbsp;&nbsp;HWND hRecord = FindWindowA(NULL, "SpoutRecorder"); // SpoutRecorder is open\
+or\
+&nbsp;&nbsp;&nbsp;&nbsp;HWND hRecord = FindWindowA(NULL, "Recording"); // SpoutRecorder is recording
+
+&nbsp;&nbsp;&nbsp;&nbsp;if (hRecord)\
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;SetWindowTextA(hRecord, "quit");
 
 Caption commands are -
 
