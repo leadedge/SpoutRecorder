@@ -60,6 +60,33 @@ By default, no audio is recorded.
 
 A batch file "aa-record.bat", located in the "DATA\Scripts" folder. Edit the file for documentation and to change the options. Custom FFmpeg arguments can also be added from the batch file.
 
+### Program communication
+
+As well as execution by way of command line, programs can communicate while SpoutRecorder is open by finding the window handle and setting the window caption.
+
+For example
+
+&nbsp;&nbsp;&nbsp;&nbsp;HWND hrec = FindWindowA(NULL, "Recording");\
+&nbsp;&nbsp;&nbsp;&nbsp;SetWindowTextA(hrec, "quit");
+
+Caption commands are -
+
+* "-select"\
+Activate sender selection dialog
+* "-close" or "-quit"\
+Stop recording and close the program
+* "-stop"\
+Stop recording without closing the program
+* "-start"\
+Start recording while the program is open
+* "-start -hide"\
+Start recording and hide the program to the taskbar
+
+
+  
+
+
+
 ### Building
 
 The project is for Visual Studio 2022 and uses SpoutDX support class. Files from the beta development branch are included in the project and can be [updated as required](https://github.com/leadedge/Spout2).
