@@ -36,7 +36,7 @@ HotKeys (always active)
 * ALT+F2 &nbsp; - stop
 * ALT+Q &nbsp;&nbsp; - stop and quit
 
-All options are saved in an initialization file on exit and recalled when the program opens again.
+Settings are saved in an initialization file on exit and recalled when the program opens again.
 
 FFmpeg encoding speed is shown in the console window. You should see a speed of 1.0 if the encoding is keeping pace with the input frame rate. The default encoding framerate is 30fps and can be changed with the batch file options.
 
