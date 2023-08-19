@@ -14,7 +14,7 @@ FFmpeg.exe is required in "DATA\FFMPEG".
 
 ### Virtual audio filter
 
-To record system audio together with the video, a virtual audio device is used. Developed by [Roger Pack](https://github.com/rdp/virtual-audio-capture-grabber-device). The device is a DirectShow filter and can be used with FFmpeg to record the audio. Register it using "VirtualAudioRegister.exe" in the "AUDIO" folder.
+To record system audio together with the video, a virtual audio device developed by [Roger Pack](https://github.com/rdp/virtual-audio-capture-grabber-device) is used. The device is a DirectShow filter and can be used with FFmpeg to record the audio. Register it using "VirtualAudioRegister.exe" in the "AUDIO" folder.
 
 ### Keyboard operation
 
@@ -81,11 +81,6 @@ Stop recording without closing the program
 Start recording while the program is open
 * "-start -hide"\
 Start recording and hide the program to the taskbar
-
-
-  
-
-
 
 ### Building
 
