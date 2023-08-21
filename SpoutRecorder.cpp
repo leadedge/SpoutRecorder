@@ -65,19 +65,24 @@
 //				   Display menu after sender change
 //				   Version 1.003
 //		14.08.23   Toggle key options and more options
-//				   A-sytem audio / R-rgba/rgb / C-codec / V-show video folder / P-prompt for filename
+//				   A-system audio / R-rgba/rgb / C-codec / V-show video folder / P-prompt for filename
 //				   Add initialization file to save ad restore options
 //				   Add ALT+F2 hotkey to stop FFmpeg
 //				   Icon from imageres.dll
 //				   Change caption to "Recording" if recording to indicate recording status
 //				   Add "Sender" caption command to change to active sender
 //				   Version 1.004
+//		20.08.23   Changes since Release
+//				   Move construct ini file path before read
+//				   Erase the top line if the sender closes
+//				   Stop recording and receiving on pixel format change
+//				   -mpeg4 and -x264 command line arguments
 //
 // =========================================================================
 // 
 // Copyright(C) 2023 Lynn Jarvis.
 // 
-// http://spout.zeal.co/
+// https://spout.zeal.co/
 // 
 // This program is free software : you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -190,6 +195,14 @@ int main(int argc, char* argv[])
 	// Register HotKeys
 	SetHotKeys();
 
+	// SpoutRecorder.ini file path
+	GetModuleFileNameA(NULL, g_Initfile, MAX_PATH);
+	PathRemoveFileSpecA(g_Initfile);
+	strcat_s(g_Initfile, MAX_PATH, "\\SpoutRecorder.ini");
+
+	// Read recording settings
+	ReadInitFile(g_Initfile);
+
 	// Parse command line arguments
 	// "-start"  - immediate start when sender detected and end when sender closes (default false)
 	// "-prompt" - prompt user for output file (default false)
@@ -208,16 +221,9 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	// SpoutRecorder.ini file path
-	GetModuleFileNameA(NULL, g_Initfile, MAX_PATH);
-	PathRemoveFileSpecA(g_Initfile);
-	strcat_s(g_Initfile, MAX_PATH, "\\SpoutRecorder.ini");
-
-	// Read recording settings
-	ReadInitFile(g_Initfile);
-
 	// Show console title and key commands
 	ShowKeyCommands();
+
 
 	// Set up the flashwindow recording status
 	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-flashwinfo
@@ -245,7 +251,6 @@ int main(int argc, char* argv[])
 		// Commands from other programs are the in the caption
 		if (GetWindowTextA(g_hWnd, title, 256)) {
 			if (strcmp(title, "SpoutRecorder") != 0) {
-				// if(!bEncoding) SetWindowTextA(g_hWnd, "SpoutRecorder"); // Set default title
 				if (strstr(title, "select") != 0) { // "select sender"
 					if (receiver.GetActiveSender(g_SenderName)) {
 						if (bEncoding) {
@@ -291,6 +296,7 @@ int main(int argc, char* argv[])
 						ShowKeyCommands();
 					}
 				}
+				if (!bEncoding) SetWindowTextA(g_hWnd, "SpoutRecorder"); // Set default title
 			}
 		}
 	
@@ -328,8 +334,7 @@ int main(int argc, char* argv[])
 									if (m_FFmpeg) {
 										StopFFmpeg();
 										bStart = false;
-										// LJ DEBUG
-										// system("cls"); // Clear the console
+										system("cls"); // Clear the console
 										ShowKeyCommands();
 									}
 								}
@@ -374,6 +379,9 @@ int main(int argc, char* argv[])
 								// R - toggle rgb
 								if (key == 0x72) {
 									bRgb = !bRgb;
+									// Stop receiving because the pixel buffers have to be updated
+									StopFFmpeg();
+									receiver.ReleaseReceiver();
 									ShowKeyCommands();
 								}
 
@@ -521,7 +529,9 @@ void ShowKeyCommands()
 		printf("[%s]\nRight click - select sender\n\n", g_SenderName);
 	}
 	else {
-		printf("Start a sender to record\n\n");
+		// Erase the top line
+		printf("\33[2K\r");
+		printf(" \nStart a sender to record   \n\n");
 	}
 	
 	SetWindowTextA(g_hWnd, "SpoutRecorder");
@@ -583,7 +593,12 @@ void ParseCommandLine(int argc, char* argv[])
 					// Command line immediate start
 					bStart = true;
 					bHide = false;
+					bAudio = false;
+					bRgb = false;
 					bPrompt = false;
+					g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
+					g_FileExt = "mp4";
+					codec = 0;
 				}
 				else if (strstr(argv[i], "-hide") != 0) {
 					// Hide window on record
@@ -601,8 +616,18 @@ void ParseCommandLine(int argc, char* argv[])
 					// Record system audio with video
 					bAudio = true;
 				}
+				else if(strstr(argv[i], "-mpeg4") != 0) { // mpeg4
+					g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
+					g_FileExt = "mp4";
+					codec = 0;
+				}
+				else if (strstr(argv[i], "-x264") != 0) { // x264
+					g_FFmpegArgs = " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23";
+					g_FileExt = "mkv";
+					codec = 1;
+				}
 				else if (strstr(argv[i], "-ext") != 0) {
-					// File type required by codec (mp4/mkv/avi/mov etc)
+					// Alternate file type required by codec (mp4/mkv/avi/mov/wmv etc)
 					size_t pos = argstr.find("-ext");
 					if (pos != std::string::npos) {
 						argstr = argstr.substr(pos+5, 3);
@@ -805,7 +830,7 @@ void StartFFmpeg()
 	// Does ffmpeg.exe exist there ?
 	outputString += "\\ffmpeg.exe";
 	if (_access(outputString.c_str(), 0) == -1) {
-		SpoutMessageBox(NULL, "FFmpeg not found", "SpoutRecorder", MB_ICONWARNING | MB_TOPMOST, 3000);
+		SpoutMessageBox(NULL, "FFmpeg not found", "SpoutRecorder", MB_ICONWARNING | MB_TOPMOST);
 		return;
 	}
 
@@ -894,7 +919,7 @@ void StartFFmpeg()
 	std::string capstr = g_SenderName;
 	capstr += ".";
 	capstr += g_FileExt;
-	// SetWindowTextA(g_hWnd, capstr.c_str());
+	
 	SetWindowTextA(g_hWnd, "Recording");
 
 	// Start flashing to show recording status
