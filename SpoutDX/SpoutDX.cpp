@@ -134,6 +134,7 @@
 //		08.07.23	- Remove global keyed texture option and SetKeyed/GetKeyed.
 //					  Retain option in SpoutDirectX CreateSharedDX11Texture.
 //		04.08.23	- Correct unused m_bKeyed argument for CreateSharedDX11Texture
+//		28.08.23	- Add ReadTexurePixels utility function
 //
 // ====================================================================================
 /*
@@ -932,7 +933,9 @@ bool spoutDX::ReceiveImage(unsigned char * pixels,
 
 }
 
-// LJ DEBUG
+//---------------------------------------------------------
+// Function: ReadTexurePixels
+// Read pixels from texture
 bool spoutDX::ReadTexurePixels(ID3D11Texture2D* pTexture, unsigned char* pixels)
 {
 	if (!pTexture || !pixels)

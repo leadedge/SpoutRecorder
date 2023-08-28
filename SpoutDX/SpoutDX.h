@@ -108,8 +108,7 @@ class SPOUT_DLLEXP spoutDX {
 	bool ReceiveTexture(ID3D11Texture2D** ppTexture);
 	// Receive an image
 	bool ReceiveImage(unsigned char * pixels, unsigned int width, unsigned int height, bool bRGB = false, bool bInvert = false);
-	
-	// LJ DEBUG
+	// Read pixels from texture
 	bool ReadTexurePixels(ID3D11Texture2D* ppTexture, unsigned char* pixels);
 
 
