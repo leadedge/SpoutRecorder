@@ -23,10 +23,10 @@ Recording
 * F2/ESC &nbsp;&nbsp; - stop recording
 * V &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - show video folder
 * Q &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - stop and quit
+* H &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - show help
 
 Settings
 * A &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - system audio
-* R &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - RGBA/RGB pixel data
 * C &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - codec mpeg4/x264
 * P &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - prompt for file name
 * T &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - tompost
@@ -52,9 +52,6 @@ Default is F1 to start ESC to stop.
 * -prompt\
 Prompt user for file name dialog\
 By default a file with the sender name is saved in DATA\Videos.
-* -rgb\
-RGB pixel data instead of default rgba\
-Using rgba pixel data is approximately twice as fast due to optimized data copy from the Spout sender texture.
 * -audio\
 Record desktop audio using directshow\
 You may see an FFmpeg warning "Guessed Channel Layout". Ignore it.\
