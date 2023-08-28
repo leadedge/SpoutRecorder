@@ -42,10 +42,16 @@
     <ClCompile Include="SpoutDX\SpoutUtils.cpp">
       <Filter>SpoutDX</Filter>
     </ClCompile>
+    <ClCompile Include="SpoutRecord.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SpoutDX\SpoutDX.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SpoutRecord.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

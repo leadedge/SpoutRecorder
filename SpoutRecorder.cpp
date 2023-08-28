@@ -12,7 +12,6 @@
 //
 //    Settings
 //        A      - system audio
-//        R      - RGBA/RGB pixel data
 //        C      - codec mpeg4/x264
 //        P      - prompt for file name
 //        T      - tompost
@@ -77,6 +76,10 @@
 //				   Erase the top line if the sender closes
 //				   Stop recording and receiving on pixel format change
 //				   -mpeg4 and -x264 command line arguments
+//		22.08.23   -hwaccel auto - hardware encode if available
+//		24.08.23   SpoutRecord class to manage FFmpeg recording
+//				   Remove RGB option - timing tests show no benefit
+//				   Version 1.005
 //
 // =========================================================================
 // 
@@ -99,13 +102,17 @@
 // 
 // ========================================================================
 //
+#include "SpoutRecord.h"
+
 #include <windows.h>
 #include <stdio.h>
 #include <conio.h>
 #include <iostream>
 #include "SpoutDX/SpoutDX.h"
 
+
 // Global Variables:
+spoutRecord recorder;                 // FFmpeg recorder
 spoutDX receiver;                     // Receiver object
 HANDLE g_hConsole = nullptr;          // Console window handle
 unsigned char* pixelBuffer = nullptr; // Receiving pixel buffer
@@ -114,32 +121,30 @@ unsigned int g_SenderWidth = 0;       // Received sender width
 unsigned int g_SenderHeight = 0;      // Received sender height
 HWND g_hWnd = NULL;                   // Console window handle
 char g_Initfile[MAX_PATH]={ 0 };      // Initialization file
+char g_ExePath[MAX_PATH]={ 0 };       // Executable path
+std::string g_FFmpegPath;             // FFmpeg path
 FLASHWINFO fwi={0};                   // For flashing title bar and taskbar icon
 // https://learn.microsoft.com/en-us/windows/console/reading-input-buffer-events
 DWORD fdwSaveOldMode = 0;
 HANDLE hStdIn = NULL;
 
 // For FFmpeg recording
-FILE* m_FFmpeg = nullptr; // FFmpeg pipe
 std::string g_FFmpegArgs=" -vcodec mpeg4 -q:v 5"; // FFmpeg arguments from batch file
 std::string g_OutputFile; // Output video file
 bool bActive = false;     // Sender is active
-bool bEncoding = false;   // Encode in progress
-bool bTopMost = false;    // Topmost (ALT-T)
+bool bTopmost = false;    // Topmost (ALT-T)
 bool bExit = false;       // User quit flag
 
 // Command line arguments
 // -start  - Immediate start encoding (default false)
 // -hide   - Hide the console when recording (show on taskbar)
 // -prompt - Prompt user with file name entry dialog (default false)
-// -rgb    - RGB input pixel format instead of default RGBA
 // -audio  - Record speaker audio using directshow virtual-audio-device 
 // -ext    - File type (mp4, mkv, avi, mov etc - default mp4)
 bool bCommandLine  = false;
 bool bStart  = false;
 bool bHide   = false;
 bool bPrompt = true;
-bool bRgb    = false;
 bool bAudio  = false;
 int codec    = 0; // 0 - mp4, 1 - h264
 std::string g_FileExt = "mp4";
@@ -149,17 +154,16 @@ int g_FPS = 30; // Output frame rate is extracted from the FFmpeg arguments
 
 int main(int argc, char* argv[]);
 void ParseCommandLine(int argc, char* argv[]);
-void Receive();
-void StartFFmpeg();
-void StopFFmpeg();
-void ShowKeyCommands();
 BOOL WINAPI CtrlHandler(DWORD fdwCtrlType);
+void Receive();
+bool StartFFmpeg();
+void StopFFmpeg();
 void SetHotKeys();
 void ClearHotKeys();
 void WriteInitFile(const char* initfile);
 void ReadInitFile(const char* initfile);
+void ShowKeyCommands();
 void Close();
-
 
 int main(int argc, char* argv[])
 {
@@ -195,9 +199,21 @@ int main(int argc, char* argv[])
 	// Register HotKeys
 	SetHotKeys();
 
+	// Executable file path
+	GetModuleFileNameA(NULL, g_ExePath, MAX_PATH);
+	PathRemoveFileSpecA(g_ExePath);
+
+	// FFmpeg path
+	g_FFmpegPath = g_ExePath;
+	g_FFmpegPath +="\\DATA\\FFMPEG\\ffmpeg.exe";
+
+	// Does FFmpeg.exe exist there?
+	if (_access(g_FFmpegPath.c_str(), 0) == -1) {
+		g_FFmpegPath.clear(); // disable functions using FFmpeg
+	}
+
 	// SpoutRecorder.ini file path
-	GetModuleFileNameA(NULL, g_Initfile, MAX_PATH);
-	PathRemoveFileSpecA(g_Initfile);
+	strcpy_s(g_Initfile, MAX_PATH, g_ExePath);
 	strcat_s(g_Initfile, MAX_PATH, "\\SpoutRecorder.ini");
 
 	// Read recording settings
@@ -206,7 +222,6 @@ int main(int argc, char* argv[])
 	// Parse command line arguments
 	// "-start"  - immediate start when sender detected and end when sender closes (default false)
 	// "-prompt" - prompt user for output file (default false)
-	// "-rgb"    - RGB or RGBA input pixel format (default false RGBA)
 	// "-audio"  - Record system audio with video (default false)
 	// "-ext"    - file type required by codec (default "mp4")
 	// FFmpeg arguments are last (see "DATA\Scripts\aa-record.bat")ff
@@ -223,7 +238,6 @@ int main(int argc, char* argv[])
 
 	// Show console title and key commands
 	ShowKeyCommands();
-
 
 	// Set up the flashwindow recording status
 	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-flashwinfo
@@ -253,9 +267,8 @@ int main(int argc, char* argv[])
 			if (strcmp(title, "SpoutRecorder") != 0) {
 				if (strstr(title, "select") != 0) { // "select sender"
 					if (receiver.GetActiveSender(g_SenderName)) {
-						if (bEncoding) {
+						if (recorder.IsEncoding()) {
 							StopFFmpeg();
-							bEncoding = false;
 							bStart = false;
 							bExit = false;
 						}
@@ -267,7 +280,7 @@ int main(int argc, char* argv[])
 					PostMessage(g_hWnd, WM_CLOSE, 0, 0);
 				}
 				else if (strstr(title, "stop") != 0) {
-					if (m_FFmpeg) {
+					if(recorder.IsEncoding()) {
 						bPrompt = false;
 						StopFFmpeg();
 						bStart = false;
@@ -283,9 +296,6 @@ int main(int argc, char* argv[])
 						ShowWindow(g_hWnd, SW_MINIMIZE);
 						ShowWindow(g_hWnd, SW_SHOWMINIMIZED);
 					}
-					// Not topmost
-					SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
-					bTopMost = false;
 					// If a sender is active, start encodng
 					if (bActive) {
 						bStart = true;
@@ -296,12 +306,14 @@ int main(int argc, char* argv[])
 						ShowKeyCommands();
 					}
 				}
-				if (!bEncoding) SetWindowTextA(g_hWnd, "SpoutRecorder"); // Set default title
+				if (!recorder.IsEncoding())
+					SetWindowTextA(g_hWnd, "SpoutRecorder"); // Set default title
 			}
 		}
 	
 		SetConsoleMode(hStdIn, fdwMode);
 		GetNumberOfConsoleInputEvents(hStdIn, &NumberOfEvents);
+
 		if(NumberOfEvents > 0) {
 			if (ReadConsoleInput(hStdIn, &irInBuf, 1, &cNumRead)) {
 				switch (irInBuf.EventType) 	{
@@ -312,12 +324,8 @@ int main(int argc, char* argv[])
 							WORD vCode = irInBuf.Event.KeyEvent.wVirtualKeyCode;
 							// printf("vCode = %d\n", vCode);
 							if (vCode > 111) {
-
 								// F1 - start recording
 								if (vCode == 112) {
-									// Not topmost
-									SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
-									bTopMost = false;
 									// If a sender is active, start encodng
 									if (bActive) {
 										bStart = true;
@@ -331,7 +339,7 @@ int main(int argc, char* argv[])
 
 								// F2 - stop recording
 								if (vCode == 113) {
-									if (m_FFmpeg) {
+									if (recorder.IsEncoding()) {
 										StopFFmpeg();
 										bStart = false;
 										system("cls"); // Clear the console
@@ -345,7 +353,7 @@ int main(int argc, char* argv[])
 
 								// ESC - stop recording
 								if (key == 0x1B) {
-									if (m_FFmpeg) {
+									if (recorder.IsEncoding()) {
 										StopFFmpeg();
 										bStart = false;
 										system("cls"); // Clear the console
@@ -356,6 +364,7 @@ int main(int argc, char* argv[])
 								// A - toggle audio
 								if (key == 0x61) {
 									bAudio = !bAudio;
+									recorder.EnableAudio(bAudio);
 									ShowKeyCommands();
 								}
 
@@ -373,28 +382,21 @@ int main(int argc, char* argv[])
 										g_FileExt = "mkv";
 										g_FPS = 30;
 									}
-									ShowKeyCommands();
-								}
-
-								// R - toggle rgb
-								if (key == 0x72) {
-									bRgb = !bRgb;
-									// Stop receiving because the pixel buffers have to be updated
-									StopFFmpeg();
-									receiver.ReleaseReceiver();
+									recorder.SetFps(g_FPS);
+									recorder.SetCodec(codec);
 									ShowKeyCommands();
 								}
 
 								// T - toggle topmost
 								if (key == 0x74) {
-									if (bTopMost) {
+									if (bTopmost) {
 										SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
-										bTopMost = false;
+										bTopmost = false;
 									}
 									else {
 										SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
 										SetForegroundWindow(g_hWnd);
-										bTopMost = true;
+										bTopmost = true;
 									}
 									ShowKeyCommands();
 								}
@@ -417,6 +419,29 @@ int main(int argc, char* argv[])
 									ShowKeyCommands();
 								}
 
+								// H - help dialog
+								if (key == 0x68) {
+
+									std::string str = "A - Audio\n";
+									str += "Record system audio with the video, ";
+									str += "A DirectShow <a href=\"https://github.com/rdp/virtual-audio-capture-grabber-device/\">virtual audio device</a>, ";
+									str += "developed by Roger Pack, allows FFmpeg to record system audio together with the video. ";
+									str += "Register it using \"VirtualAudioRegister.exe\" in the <a href=\"";
+									str += g_ExePath;
+									str += "\\data\\audio\\VirtualAudio\">\"VirtualAudio\"</a> folder.\n\n";
+									str += "C - Codec\n";
+									str += "x264 codec can be used instead of default Mpeg4. ";
+									str += "Playback compatibility and quality may be improved. File size approximately 20% less. ";
+									str += "Encoding speed may be reduced slightly depending on the computer specifications. ";
+									str += "To check, click on the SpoutRecorder taskbar icon while recording. ";
+									str += "FFmpeg encoding speed is shown in the console window. ";
+									str += "You should see a speed of 1.0 if the encoding is keeping pace with the input frame rate.\n\n";
+									str += "P - Prompt\nPrompt for file name and show file details after save. By default, a file with the sender name is saved in \"DATA\\Videos\" and over-written if it exists.\n\n";
+									str += "Topmost\n";
+									str += "Keep the SpoutRecorder window topmost.\n\n\n";
+									SpoutMessageBox(NULL, str.c_str(), "Options", MB_OK | MB_TOPMOST);
+								}
+
 								// Q - quit and close console
 								if (key == 0x71) {
 									StopFFmpeg();
@@ -431,7 +456,7 @@ int main(int argc, char* argv[])
 
 				case MOUSE_EVENT:
 					// Right click - select sender if not encoding
-					if (irInBuf.Event.MouseEvent.dwButtonState == 2 && !bEncoding) {
+					if (irInBuf.Event.MouseEvent.dwButtonState == 2 && !recorder.IsEncoding()) {
 						receiver.SelectSender();
 					}
 					break;
@@ -457,9 +482,6 @@ int main(int argc, char* argv[])
 				}
 				// ALT+F1 - 0x70 - start recording
 				if (msg.wParam == 2) {
-					// Not topmost
-					SetWindowPos(g_hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
-					bTopMost = false;
 					// If a sender is active, start encodng
 					if (bActive) {
 						bStart = true;
@@ -475,6 +497,7 @@ int main(int argc, char* argv[])
 				if (msg.wParam == 3) {
 					StopFFmpeg();
 					bStart = false;
+					system("cls");
 					ShowKeyCommands();
 				}
 			}
@@ -499,9 +522,6 @@ int main(int argc, char* argv[])
 
 void ShowKeyCommands()
 {
-	// Clear the console
-	// system("cls");
-
 	// Show our text bright yellow - a different colour to FFmpeg
 	// https://learn.microsoft.com/en-us/windows/console/setconsoletextattribute
 	g_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -541,14 +561,13 @@ void ShowKeyCommands()
 
 	std::string startstr   = "  F1     - start recording\n";
 	startstr              += "  F2/ESC - stop recording \n";
-	startstr              += "  V      - show video folder\n";
 	startstr              += "  Q      - stop and quit\n";
+	startstr              += "  V      - show video folder\n";
+	startstr              += "  H      - help\n";
 	startstr              += "\nSettings\n";
 
 	std::string audiostr   = "  A      - no audio    \n";
 	if(bAudio) audiostr    = "  A      - system audio\n";
-	std::string rgbstr     = "  R      - RGBA pixel data\n";
-	if(bRgb) rgbstr        = "  R      - RGB pixel data \n";
 	if(codec == 0) 
 	sprintf_s(codecstr, 256, "  C      - codec mpeg4\n");
 	else
@@ -556,11 +575,10 @@ void ShowKeyCommands()
 	std::string promptstr  = "  P      - auto file name      \n";
 	if(bPrompt) promptstr  = "  P      - prompt for file name\n";
 	std::string topstr     = "  T      - not topmost\n";
-	if (bTopMost) topstr   = "  T      - topmost    \n";
+	if (bTopmost) topstr   = "  T      - topmost    \n";
 
 	std::string keystr = startstr;
 	keystr += audiostr;
-	keystr += rgbstr;
 	keystr += codecstr;
 	keystr += promptstr;
 	keystr += topstr;
@@ -570,8 +588,6 @@ void ShowKeyCommands()
 	printf("  ALT+F1 - start\n");
 	printf("  ALT+F2 - stop\n");
 	printf("  ALT+Q  - stop and quit\n");
-
-
 
 }
 
@@ -594,7 +610,6 @@ void ParseCommandLine(int argc, char* argv[])
 					bStart = true;
 					bHide = false;
 					bAudio = false;
-					bRgb = false;
 					bPrompt = false;
 					g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
 					g_FileExt = "mp4";
@@ -607,10 +622,6 @@ void ParseCommandLine(int argc, char* argv[])
 				else if (strstr(argv[i], "-prompt") != 0) {
 					// Prompt for file name entry
 					bPrompt = true;
-				}
-				else if (strstr(argv[i], "-rgb") != 0) {
-					// RGB or RGBA input pixel format (default RGBA)
-					bRgb = true;
 				}
 				else if (strstr(argv[i], "-audio") != 0) {
 					// Record system audio with video
@@ -643,6 +654,7 @@ void ParseCommandLine(int argc, char* argv[])
 						if (pos != std::string::npos) {
 							argstr = argstr.substr(pos+3, 2); // 2 digits for fps
 							g_FPS = atoi(argstr.c_str());
+							recorder.SetFps(g_FPS);
 						}
 					}
 				}
@@ -656,20 +668,23 @@ void Receive()
 {
 	// No senders
 	if (bActive && receiver.GetSenderCount() == 0) {
-		if (bEncoding)
+		if (recorder.IsEncoding()) {
+			SpoutMessageBox(NULL, "No senders", "SpoutRecorder", MB_OK | MB_ICONWARNING | MB_TOPMOST, 2000);
 			StopFFmpeg();
-		bEncoding = false;
+		}
 		bStart = false;
 		bExit = false;
 		bActive = false;
+
+		system("cls");
 		ShowKeyCommands();
+
 		return;
 	}
 
 	// Get pixels from the sender shared texture.
 	// ReceiveImage handles sender detection, creation and update.
-	// If bRgb is true, receive an RGB data buffer
-	if (receiver.ReceiveImage(pixelBuffer, g_SenderWidth, g_SenderHeight, bRgb)) {
+	if (receiver.ReceiveImage(pixelBuffer, g_SenderWidth, g_SenderHeight)) {
 		bActive = true;
 		// IsUpdated() returns true if the sender has changed
 		if (receiver.IsUpdated()) {
@@ -678,9 +693,8 @@ void Receive()
 				if (receiver.GetSenderCount() > 1
 					&& strcmp(g_SenderName, receiver.GetSenderName()) != 0) {
 					strcpy_s((char*)g_SenderName, 256, receiver.GetSenderName());
-					if (bEncoding) {
+					if (recorder.IsEncoding()) {
 						StopFFmpeg();
-						bEncoding = false;
 						bStart = false;
 						bExit = false;
 					}
@@ -705,16 +719,12 @@ void Receive()
 
 			// Update the receiving buffer
 			if (pixelBuffer) delete[] pixelBuffer;
-			if (bRgb)
-				pixelBuffer = new unsigned char[g_SenderWidth * g_SenderHeight * 3];
-			else
-				pixelBuffer = new unsigned char[g_SenderWidth * g_SenderHeight * 4];
+			pixelBuffer = new unsigned char[g_SenderWidth * g_SenderHeight * 4];
 
 			// Stop FFmpeg if already encoding and the stream size has changed.
-			// Return the user to the start.
-			if (bEncoding) {
+			// Do not exit. Return the user to the start.
+			if(recorder.IsEncoding()) {
 				StopFFmpeg();
-				bEncoding = false;
 				bStart = false;
 				ShowKeyCommands();
 			}
@@ -723,41 +733,36 @@ void Receive()
 
 			// Start FFmpeg for F1 or the command line "-start" argument
 			if (bStart) {
-				StartFFmpeg();
-			}
-
-		}
-		else if (pixelBuffer && m_FFmpeg) {
-			if (bEncoding) {
-				// Encode pixels to video with the FFmpeg output pipe
-				if(bRgb)
-					fwrite((const void*)pixelBuffer, 1, g_SenderWidth*g_SenderHeight*3, m_FFmpeg);
-				else
-					fwrite((const void*)pixelBuffer, 1, g_SenderWidth*g_SenderHeight*4, m_FFmpeg);
-			}
-			else {
-				// FFmpeg is encoding, stop and exit
-				StopFFmpeg();
-				bStart = false;
-				bExit = true;
+				if (!StartFFmpeg()) {
+					// Quit completely for command line problem
+					if (bCommandLine) {
+						bStart = false;
+						bExit = true;
+						SpoutMessageBox(NULL, "FFmpeg failed to start with command line", "SpoutRecorder", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+						return;
+					}
+				}
 			}
 		}
-		bActive = true;
+		else if (pixelBuffer && recorder.IsEncoding()) {
+			recorder.Write(pixelBuffer, g_SenderWidth*g_SenderHeight*4);
+			bActive = true;
+		}
 	}
 	else {
-
 		// If FFmpeg is encoding, stop and exit
-		if (bEncoding) {
-			MessageBoxA(NULL, "Sender closed - stopping FFmpeg", "Warning", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+		if(recorder.IsEncoding()) {
+			SpoutMessageBox(NULL, "Sender closed", "SpoutRecorder", MB_OK | MB_ICONWARNING | MB_TOPMOST, 2000);
 			StopFFmpeg();
-			bStart = false;
+			g_SenderName[0] = 0;
 			bActive = false;
+			bStart = false;
+			system("cls");
 			ShowKeyCommands();
 		}
 
 		// Sender has closed
 		if (g_SenderName[0] && !receiver.sendernames.FindSenderName(g_SenderName)) {
-			// MessageBoxA(NULL, "Sender has closed", "Warning", MB_OK | MB_ICONWARNING | MB_TOPMOST);
 			g_SenderName[0] = 0;
 			bActive = false;
 			ShowKeyCommands();
@@ -771,21 +776,15 @@ void Receive()
 
 }
 
-
-void StartFFmpeg()
+bool StartFFmpeg()
 {
-	// Already recording or no sender
-	if (m_FFmpeg || !bActive) {
-		return;
+	// Already recording, no sender or no FFmpeg
+	if (recorder.IsEncoding() || !bActive || g_FFmpegPath.empty()) {
+		return false;
 	}
 
-	// Executable folder
-	char exefolder[MAX_PATH];
-	GetModuleFileNameA(NULL, exefolder, MAX_PATH);
-	PathRemoveFileSpecA(exefolder);
-
-	// Default output file path
-	g_OutputFile = exefolder;
+	// Default output file
+	g_OutputFile = g_ExePath; // exe folder
 	g_OutputFile += "\\DATA\\Videos\\";
 	g_OutputFile += (char*)g_SenderName;
 	g_OutputFile += ".";
@@ -806,111 +805,30 @@ void StartFFmpeg()
 		// if ofn.lpstrFile contains a path, that path is the initial directory.
 		ofn.lpstrFile = (LPSTR)filePath;
 		ofn.nMaxFile = MAX_PATH;
-		ofn.lpstrFilter = "Mpeg-4 (*.mp4)\0*.mp4\0Matroska (*.mkv)\0*.mkv\0Audio Video Interleave (*.avi)\0*.avi\0Quicktime (*.mov)\0*.mov\0All files (*.*)\0*.*\0";
+		if(codec ==0)
+			ofn.lpstrFilter = "Mpeg-4 (*.mp4)\0*.mp4\0Matroska (*.mkv)\0*.mkv\0Audio Video Interleave (*.avi)\0*.avi\0Quicktime (*.mov)\0*.mov\0All files (*.*)\0*.*\0";
+		else
+			ofn.lpstrFilter = "Matroska (*.mkv)\0*.mkv\0Mpeg-4 (*.mp4)\0*.mp4\0Audio Video Interleave (*.avi)\0*.avi\0Quicktime (*.mov)\0*.mov\0All files (*.*)\0*.*\0";
 		ofn.lpstrDefExt = "";
 		// OFN_OVERWRITEPROMPT prompts for over-write
 		ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
 		ofn.lpstrTitle = "Output File";
 		if (!GetSaveFileNameA(&ofn)) {
-			// FFmpeg has not been started yet
-			// Return to try again
-			return;
+			// FFmpeg has not been started yet, return to try again
+			return false;
 		}
 		// User file name entry
 		g_OutputFile = filePath;
 	}
 
-	// FFmpeg location
-	char ffmpegPath[MAX_PATH];
-	GetModuleFileNameA(NULL, ffmpegPath, MAX_PATH);
-	PathRemoveFileSpecA(ffmpegPath);
-	strcat_s(ffmpegPath, "\\DATA\\FFMPEG");
-	std::string outputString = ffmpegPath;
+	// Options for audio, codec and fps
+	recorder.EnableAudio(bAudio); // For recording system audio
+	recorder.SetCodec(codec); // x264 codec
+	recorder.SetFps(g_FPS); // Fps for FFmpeg (see HoldFps)
 
-	// Does ffmpeg.exe exist there ?
-	outputString += "\\ffmpeg.exe";
-	if (_access(outputString.c_str(), 0) == -1) {
-		SpoutMessageBox(NULL, "FFmpeg not found", "SpoutRecorder", MB_ICONWARNING | MB_TOPMOST);
-		return;
-	}
-
-	// Maximum threads
-	outputString += " -threads 0";
-
-	// -thread_queue_size
-	// This option sets the maximum number of queued packets when reading from the file or device. 
-	// With low latency / high rate live streams, packets may be discarded if they are not read in a
-	// timely manner; setting this value can force ffmpeg to use a separate input thread and read
-	// packets as soon as they arrive. By default ffmpeg only do this if multiple inputs are specified.
-	// TODO : optimize ?
-	// There appears to be no documentation on what value should be set
-	outputString += " -thread_queue_size 4096";
-
-	// Overwrite output files without asking
-	outputString += " -y";
-
-	// Record system audio using the directshow audio capture device
-	// (Option set by "aa-record.bat" batch file or by F2 to start)
-	// thread_queue_size must be set on this input as well
-	if(bAudio)
-		outputString += " -f dshow -i audio=\"virtual-audio-capturer\" -thread_queue_size 512";
-	else
-		outputString += " -an";
-
-	// Input raw video
-	outputString += " -f rawvideo -vcodec rawvideo";
-
-	// Input pixel format bgr24 (RGB pixels) or bgra (RGBA pixels)
-	// bgra is faster due to SSE optimized pixel copy from the sender texture
-	// Overall encoding rate is approximately double.
-	if(bRgb)
-		outputString += " -pix_fmt bgr24";
-	else
-		outputString += " -pix_fmt bgra";
-
-	// Size of frame
-	outputString += " -s ";
-	outputString += std::to_string(g_SenderWidth);
-	outputString += "x";
-	outputString += std::to_string(g_SenderHeight);
-
-	// FFmpeg input frame rate must be the same as
-	// the video frame output rate (see HoldFps)
-	outputString += " -r ";
-	outputString += std::to_string(g_FPS);
-
-	// The final “-” tells FFmpeg to write to stdout
-	outputString += " -i - ";
-
-	// User FFmpeg options
-	// (See "DATA\Scripts\aa-record.bat")
-	if (!g_FFmpegArgs.empty()) {
-		outputString += g_FFmpegArgs;
-	}
-	else { // Defaults
-		// FFmpeg “mpeg4” encoder (MPEG-4 Part 2 format)
-		// https://trac.ffmpeg.org/wiki/Encode/MPEG-4
-		outputString += " -vcodec mpeg4";
-		// Quality (1 = best, 31 = worse) 
-		// 5 - best trade off between file size and quality
-		outputString += " -q:v 5";
-	}
-
-	if (bAudio)
-		outputString += " -shortest";
-
-	outputString += " \""; // Insert a space before the output file
-	outputString += g_OutputFile;
-	outputString += "\"";
-
-	// printf("%s\n\n", outputString.c_str());
-
-	// Open pipe to ffmpeg's stdin in binary write mode.
-	// The STDIO lib will use block buffering when talking to
-	// a block file descriptor such as a pipe.
-	m_FFmpeg = _popen(outputString.c_str(), "wb");
-	
-	bEncoding = true; // Encoding active
+	// Start FFmpeg pipe
+	// recorder.Start(g_FFmpegPath, g_FFmpegArgs, g_OutputFile, g_SenderWidth, g_SenderHeight, false);
+	recorder.Start(g_FFmpegPath, g_OutputFile, g_SenderWidth, g_SenderHeight, false);
 
 	// Reset console text colour
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
@@ -927,6 +845,7 @@ void StartFFmpeg()
 	FlashWindowEx(&fwi);
 
 	// Code in Receive() is activated
+	return true;
 
 } // end StartFFmpeg
 
@@ -934,16 +853,11 @@ void StartFFmpeg()
 // Stop encoding with the Escape key or if the sender closes
 void StopFFmpeg()
 {
-	if (m_FFmpeg) {
+	if (recorder.IsEncoding()) {
+
+		// Stop encoding
 		SetCursor(LoadCursor(NULL, IDC_WAIT));
-		// Flush FFmpeg
-		fflush(m_FFmpeg);
-		// FFmpeg pipe is still open so close it
-		_pclose(m_FFmpeg);
-		m_FFmpeg = nullptr;
-		// Allow FFmpeg to finish
-		Sleep(10);
-		bEncoding = false;
+		recorder.Stop();
 		SetCursor(LoadCursor(NULL, IDC_ARROW));
 		
 		// Stop flashing
@@ -1001,9 +915,10 @@ void ClearHotKeys()
 void Close()
 {
 	// Stop recording
-	if (m_FFmpeg) StopFFmpeg();
+	recorder.Stop();
 	// Close receiver and free resources
 	receiver.ReleaseReceiver();
+	// Clear hotkeyy registration
 	ClearHotKeys();
 	// Reset console text colour
 	SetConsoleTextAttribute(g_hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
@@ -1029,11 +944,6 @@ void WriteInitFile(const char* initfile)
 	else
 		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Audio", (LPCSTR)"0", (LPCSTR)initfile);
 
-	if (bRgb)
-		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"RGB", (LPCSTR)"1", (LPCSTR)initfile);
-	else
-		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"RGB", (LPCSTR)"0", (LPCSTR)initfile);
-
 	sprintf_s(tmp, 256, "%.1d", codec);
 	WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Codec", (LPCSTR)tmp, (LPCSTR)initfile);
 
@@ -1042,7 +952,7 @@ void WriteInitFile(const char* initfile)
 	else
 		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Prompt", (LPCSTR)"0", (LPCSTR)initfile);
 
-	if (bTopMost)
+	if (bTopmost)
 		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Topmost", (LPCSTR)"1", (LPCSTR)initfile);
 	else
 		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Topmost", (LPCSTR)"0", (LPCSTR)initfile);
@@ -1064,10 +974,6 @@ void ReadInitFile(const char* initfile)
 	if (tmp[0]) bAudio = (atoi(tmp) == 1);
 	if (bAudio)
 
-	bRgb = false;
-	GetPrivateProfileStringA((LPCSTR)"Options", (LPSTR)"RGB", NULL, (LPSTR)tmp, 3, initfile);
-	if (tmp[0]) bRgb = (atoi(tmp) == 1);
-
 	codec = 0;
 	GetPrivateProfileStringA((LPCSTR)"Options", (LPSTR)"Codec", NULL, (LPSTR)tmp, 3, initfile);
 	if (tmp[0]) codec = atoi(tmp);
@@ -1076,7 +982,7 @@ void ReadInitFile(const char* initfile)
 		g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
 		g_FileExt = "mp4";
 	}
-	if (codec == 1) { // h264
+	if (codec == 1) { // x264
 		g_FFmpegArgs = " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23";
 		g_FileExt = "mkv";
 	}
@@ -1085,13 +991,14 @@ void ReadInitFile(const char* initfile)
 	GetPrivateProfileStringA((LPCSTR)"Options", (LPSTR)"Prompt", NULL, (LPSTR)tmp, 3, initfile);
 	if (tmp[0]) bPrompt = (atoi(tmp) == 1);
 
-	bTopMost = false;
+	bTopmost = false;
 	GetPrivateProfileStringA((LPCSTR)"Options", (LPSTR)"Topmost", NULL, (LPSTR)tmp, 3, initfile);
-	if (tmp[0]) bTopMost = (atoi(tmp) == 1);
+	if (tmp[0]) bTopmost = (atoi(tmp) == 1);
 
-	if(bTopMost)
+	if(bTopmost)
 		SetWindowPos(g_hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_DRAWFRAME | SWP_SHOWWINDOW);
 
 }
+
 
 // The end ..

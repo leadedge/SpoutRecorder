@@ -136,7 +136,9 @@
       <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
     <PostBuildEvent>
-      <Command>copy /y /v $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)Binaries\</Command>
+      <Command>copy /y /v $(OutDir)$(TargetName)$(TargetExt) $(SolutionDir)Binaries\
+copy /y /v $(OutDir)$(TargetName)$(TargetExt) D:\OPENFRAMEWORKS111_VS2022\apps\SpoutGL\ofSpoutDemo\bin\
+copy /y /v $(OutDir)$(TargetName)$(TargetExt) D:\OPENFRAMEWORKS111_VS2022\apps\SpoutGL\WinSpoutSDK\x64\Release</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -147,10 +149,12 @@
     <ClCompile Include="SpoutDX\SpoutSenderNames.cpp" />
     <ClCompile Include="SpoutDX\SpoutSharedMemory.cpp" />
     <ClCompile Include="SpoutDX\SpoutUtils.cpp" />
+    <ClCompile Include="SpoutRecord.cpp" />
     <ClCompile Include="SpoutRecorder.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SpoutDX\SpoutDX.h" />
+    <ClInclude Include="SpoutRecord.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
