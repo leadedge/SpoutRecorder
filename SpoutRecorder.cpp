@@ -134,6 +134,7 @@ std::string g_OutputFile; // Output video file
 bool bActive = false;     // Sender is active
 bool bTopmost = false;    // Topmost (ALT-T)
 bool bExit = false;       // User quit flag
+bool bStarted = false;    // For start print workaround = see code comments
 
 // Command line arguments
 // -start  - Immediate start encoding (default false)
@@ -549,8 +550,17 @@ void ShowKeyCommands()
 		printf("[%s]\nRight click - select sender\n\n", g_SenderName);
 	}
 	else {
-		// Erase the top line
-		printf("\33[2K\r");
+		// Workaround due to executable or shortcut start printing " [2K" at start.
+		// OK if run from Visual Studio. Cause yet to be determined.
+		if (bStarted) {
+			// Erase the top line
+			printf("\33[2K\r");
+		}
+		else {
+			// Clear the whole screen
+			system("cls");
+			bStarted = true;
+		}
 		printf(" \nStart a sender to record   \n\n");
 	}
 	
