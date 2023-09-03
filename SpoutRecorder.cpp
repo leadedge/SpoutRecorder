@@ -8,13 +8,16 @@
 //	      F1     - start recording
 //        F2/ESC - stop recording
 //        V      - show video folder
-//        Q      - stop and quit
+//        H      - help
 //
 //    Settings
-//        A      - system audio
-//        C      - codec mpeg4/x264
-//        P      - prompt for file name
 //        T      - tompost
+//        F      - enter file name
+//        A      - system audio
+//        C      - codec mpeg4/h264
+//        Q      - h264 quality
+//        P      - h264 preset
+//        R      - reset
 //
 //    HotKeys (always active)
 //        ALT+F1 - start
@@ -75,11 +78,17 @@
 //				   Move construct ini file path before read
 //				   Erase the top line if the sender closes
 //				   Stop recording and receiving on pixel format change
-//				   -mpeg4 and -x264 command line arguments
+//				   -mpeg4 and -h264 command line arguments
 //		22.08.23   -hwaccel auto - hardware encode if available
 //		24.08.23   SpoutRecord class to manage FFmpeg recording
 //				   Remove RGB option - timing tests show no benefit
 //				   Version 1.005
+//		31.08.23   Change x264 to h264
+//				   Add h264 quality and preset options
+//				   Add reset option
+//				   Change 'Q' to set Quality instead of Quit
+//				   Close console with caption [X] which is intercepted already.
+//				   Version 1.006
 //
 // =========================================================================
 // 
@@ -136,18 +145,14 @@ bool bTopmost = false;    // Topmost (ALT-T)
 bool bExit = false;       // User quit flag
 bool bStarted = false;    // For start print workaround = see code comments
 
-// Command line arguments
-// -start  - Immediate start encoding (default false)
-// -hide   - Hide the console when recording (show on taskbar)
-// -prompt - Prompt user with file name entry dialog (default false)
-// -audio  - Record speaker audio using directshow virtual-audio-device 
-// -ext    - File type (mp4, mkv, avi, mov etc - default mp4)
 bool bCommandLine  = false;
 bool bStart  = false;
 bool bHide   = false;
 bool bPrompt = true;
 bool bAudio  = false;
-int codec    = 0; // 0 - mp4, 1 - h264
+int codec    = 0; // 0 - mpeg4, 1 - h264
+int quality  = 1; // 0 - low, 1 - medium, 2 - high
+int preset   = 0; // 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
 std::string g_FileExt = "mp4";
 
 // FFmpeg arguments input by batch file (see aa-record.bat)
@@ -220,12 +225,26 @@ int main(int argc, char* argv[])
 	// Read recording settings
 	ReadInitFile(g_Initfile);
 
+	//
 	// Parse command line arguments
-	// "-start"  - immediate start when sender detected and end when sender closes (default false)
-	// "-prompt" - prompt user for output file (default false)
-	// "-audio"  - Record system audio with video (default false)
-	// "-ext"    - file type required by codec (default "mp4")
-	// FFmpeg arguments are last (see "DATA\Scripts\aa-record.bat")ff
+	//
+	// -start     - Immediate start encoding (default false)
+	// -hide      - Hide the console when recording (show on taskbar)
+	// -prompt    - Prompt user with file name entry dialog (default false)
+	// -audio     - Record speaker audio using directshow virtual-audio-device 
+	// -mpeg4     - mpeg4 codec (default)
+	// -h264      - h264 codec (libx264)
+	// -low       - h264 quality (CRF)
+	// -medium
+	// -high
+	// -ultrafast - h264 preset
+	// -superfast
+	// -veryfast
+	// -faster
+	// -ext       - file type required by codec (default "mp4")
+	//
+	// User FFmpeg arguments are last (see "DATA\Scripts\aa-record.bat")
+	//
 	if (argc > 1) {
 		bCommandLine = true;
 		ParseCommandLine(argc, argv);
@@ -343,6 +362,7 @@ int main(int argc, char* argv[])
 									if (recorder.IsEncoding()) {
 										StopFFmpeg();
 										bStart = false;
+										bExit = false;
 										system("cls"); // Clear the console
 										ShowKeyCommands();
 									}
@@ -357,8 +377,7 @@ int main(int argc, char* argv[])
 									if (recorder.IsEncoding()) {
 										StopFFmpeg();
 										bStart = false;
-										system("cls"); // Clear the console
-										ShowKeyCommands();
+										bExit = false;
 									}
 								}
 
@@ -374,17 +393,20 @@ int main(int argc, char* argv[])
 									codec += 1;
 									if (codec > 1) codec = 0;
 									if (codec == 0) { // mpeg4
+										// TODO - unused
 										g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
 										g_FileExt = "mp4";
 										g_FPS = 30;
 									}
-									if (codec == 1) { // x264
+									if (codec == 1) { // h264
+										// TODO - unused
 										g_FFmpegArgs = " -vcodec libx264 -preset superfast -tune zerolatency -crf 23";
 										g_FileExt = "mkv";
 										g_FPS = 30;
 									}
 									recorder.SetFps(g_FPS);
 									recorder.SetCodec(codec);
+									system("cls"); // Clear the console
 									ShowKeyCommands();
 								}
 
@@ -414,8 +436,8 @@ int main(int argc, char* argv[])
 										SpoutMessageBox(NULL, "video folder not found", "SpoutRecorder", MB_OK | MB_ICONWARNING, 3000);
 								}
 
-								// P - prompt for file name
-								if (key == 0x70) {
+								// F - enter file name
+								if (key == 0x66) {
 									bPrompt = !bPrompt;
 									ShowKeyCommands();
 								}
@@ -423,31 +445,73 @@ int main(int argc, char* argv[])
 								// H - help dialog
 								if (key == 0x68) {
 
-									std::string str = "A - Audio\n";
+									std::string str = "T - Topmost\n";
+									str += "Keep the SpoutRecorder window topmost.\n\n";
+
+									str += "F - File name\nShow file name entry dialog and details after save. By default, a file with the sender name is saved in \"DATA\\Videos\" and over-written if it exists.\n\n";
+
+									str += "A - Audio\n";
 									str += "Record system audio with the video, ";
 									str += "A DirectShow <a href=\"https://github.com/rdp/virtual-audio-capture-grabber-device/\">virtual audio device</a>, ";
 									str += "developed by Roger Pack, allows FFmpeg to record system audio together with the video. ";
 									str += "Register it using \"VirtualAudioRegister.exe\" in the <a href=\"";
 									str += g_ExePath;
 									str += "\\data\\audio\\VirtualAudio\">\"VirtualAudio\"</a> folder.\n\n";
+
 									str += "C - Codec\n";
-									str += "x264 codec can be used instead of default Mpeg4. ";
-									str += "Playback compatibility and quality may be improved. File size approximately 20% less. ";
-									str += "Encoding speed may be reduced slightly depending on the computer specifications. ";
-									str += "To check, click on the SpoutRecorder taskbar icon while recording. ";
-									str += "FFmpeg encoding speed is shown in the console window. ";
+									str += "<a href=\"https://trac.ffmpeg.org/wiki/Encode/MPEG-4\">Mpeg4</a> is a well established codec that performs well for most systems. ";
+									str += "<a href=\"https://trac.ffmpeg.org/wiki/Encode/H.264\">h264</a> is a modern codec with more control over ";
+									str += "quality, encoding speed and file size.\n\n";
+
+									str += "Q - Quality\n";
+									str += "h264 constant rate factor CRF (0 > 51) : low = 28, medium = 23, high = 18. ";
+									str += "High quality is effectively lossless, but will create a larger file. ";
+									str += "Low quality will create a smaller file at the expense of quality. ";
+									str += "Medium is the default, a balance between file size and quality.\n\n";
+
+									str += "P - Preset\n";
+									str += "h264 preset : ultrafast, superfast, veryfast, faster.\n";
+									str += "These are the FFmpeg options necessary for real-time encoding. ";
+									str += "Higher speed presets encode faster but produce progressively larger files. ";
+									str += "Use a slower preset to reduce file size. ";
+									str += "FFmpeg encoding speed is shown in the console window while recording. ";
 									str += "You should see a speed of 1.0 if the encoding is keeping pace with the input frame rate.\n\n";
-									str += "P - Prompt\nPrompt for file name and show file details after save. By default, a file with the sender name is saved in \"DATA\\Videos\" and over-written if it exists.\n\n";
-									str += "Topmost\n";
-									str += "Keep the SpoutRecorder window topmost.\n\n\n";
+
+									str += "R - Reset\n";
+									str += "Reset to defaults. Topmost false, auto file name, no audio, mpeg4 codec. ";
+									str += "h624 - ultrafast preset and medium quality\n\n";
+
 									SpoutMessageBox(NULL, str.c_str(), "Options", MB_OK | MB_TOPMOST);
 								}
 
-								// Q - quit and close console
+								// Q - toggle quality
+								// 0 - low, 1 - medium, 2 - high
 								if (key == 0x71) {
-									StopFFmpeg();
-									bStart = false;
-									bExit = true;
+									quality++;
+									if (quality > 2) quality = 0;
+									ShowKeyCommands();
+								}
+
+								// P - toggle preset
+								// 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
+								if (key == 0x70) {
+									preset++;
+									if (preset > 3) preset = 0;
+									ShowKeyCommands();
+								}
+
+								// R - reset to defaults
+								if (key == 0x72) {
+									codec = 0;
+									g_FileExt = "mp4";
+									g_FPS    = 30;
+									bAudio   = false;
+									bTopmost = false;
+									bPrompt  = false;
+									preset   = 0; // Ultrafast
+									quality  = 1; // Medium
+									system("cls");
+									ShowKeyCommands();
 								}
 
 							}
@@ -568,30 +632,58 @@ void ShowKeyCommands()
 
 	// Show key commands
 	char codecstr[256]={0};
+	char qualstr[256]={0};
+	char prestr[256]={0};
 
 	std::string startstr   = "  F1     - start recording\n";
 	startstr              += "  F2/ESC - stop recording \n";
-	startstr              += "  Q      - stop and quit\n";
 	startstr              += "  V      - show video folder\n";
 	startstr              += "  H      - help\n";
 	startstr              += "\nSettings\n";
 
-	std::string audiostr   = "  A      - no audio    \n";
-	if(bAudio) audiostr    = "  A      - system audio\n";
-	if(codec == 0) 
-	sprintf_s(codecstr, 256, "  C      - codec mpeg4\n");
-	else
-	sprintf_s(codecstr, 256, "  C      - codec x264 \n");
-	std::string promptstr  = "  P      - auto file name      \n";
-	if(bPrompt) promptstr  = "  P      - prompt for file name\n";
+	std::string promptstr  = "  F      - auto file name      \n";
+	if (bPrompt) promptstr = "  F      - enter file name\n";
 	std::string topstr     = "  T      - not topmost\n";
 	if (bTopmost) topstr   = "  T      - topmost    \n";
 
+	std::string audiostr   = "  A      - no audio    \n";
+	if(bAudio) audiostr    = "  A      - system audio\n";
+
+	if(codec == 0) 
+	sprintf_s(codecstr, 256, "  C      - codec mpeg4\n");
+	else
+	sprintf_s(codecstr, 256, "  C      - codec h264 \n");
+
+	if (codec == 1) {
+
+		// 0 - low, 1 - medium, 2 - high
+		if (quality == 0)
+			sprintf_s(qualstr, 256, "  Q      - low quality h264   \n");
+		else if (quality == 1)
+			sprintf_s(qualstr, 256, "  Q      - medium quality h264\n");
+		else if (quality == 2)
+			sprintf_s(qualstr, 256, "  Q      - high quality h264  \n");
+
+		// 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
+		if (preset == 0)
+			sprintf_s(prestr, 256, "  P      - ultrafast preset h264\n");
+		else if (preset == 1)
+			sprintf_s(prestr, 256, "  P      - superfast preset h264\n");
+		else if (preset == 2)
+			sprintf_s(prestr, 256, "  P      - veryfast preset h264 \n");
+		else if (preset == 3)
+			sprintf_s(prestr, 256, "  P      - faster preset h264   \n");
+
+	}
+
 	std::string keystr = startstr;
+	keystr += topstr;
+	keystr += promptstr;
 	keystr += audiostr;
 	keystr += codecstr;
-	keystr += promptstr;
-	keystr += topstr;
+	keystr += qualstr;
+	keystr += prestr;
+	keystr += "  R      - reset\n";
 	printf("%s\n", keystr.c_str());
 
 	printf("Hot Keys\n");
@@ -642,10 +734,31 @@ void ParseCommandLine(int argc, char* argv[])
 					g_FileExt = "mp4";
 					codec = 0;
 				}
-				else if (strstr(argv[i], "-x264") != 0) { // x264
+				else if (strstr(argv[i], "-h264") != 0) { // h264
 					g_FFmpegArgs = " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23";
 					g_FileExt = "mkv";
 					codec = 1;
+				}
+				else if (strstr(argv[i], "-low") != 0) { // h264 quality
+					quality = 0;
+				}
+				else if (strstr(argv[i], "-medium") != 0) { // h264 quality
+					quality = 1;
+				}
+				else if (strstr(argv[i], "-high") != 0) { // h264 quality
+					quality = 2;
+				}
+				else if (strstr(argv[i], "-ultrafast") != 0) { // h264 preset
+					preset = 0;
+				}
+				else if (strstr(argv[i], "-superfast") != 0) { // h264 preset
+					preset = 1;
+				}
+				else if (strstr(argv[i], "-veryfast") != 0) { // h264 preset
+					preset = 2;
+				}
+				else if (strstr(argv[i], "-faster") != 0) { // h264 preset
+					preset = 3;
 				}
 				else if (strstr(argv[i], "-ext") != 0) {
 					// Alternate file type required by codec (mp4/mkv/avi/mov/wmv etc)
@@ -806,6 +919,14 @@ bool StartFFmpeg()
 	if (bPrompt) {
 		char filePath[MAX_PATH]={};
 		sprintf_s(filePath, MAX_PATH, g_OutputFile.c_str());
+		if (!g_OutputFile.empty()) {
+			PathRemoveExtensionA(filePath);
+			if (codec == 1)
+				strcat_s(filePath, MAX_PATH, ".mkv");
+			else
+				strcat_s(filePath, MAX_PATH, ".mp4");
+		}
+
 		OPENFILENAMEA ofn={};
 		ofn.lStructSize = sizeof(OPENFILENAMEA);
 		HWND hwnd = NULL;
@@ -833,11 +954,14 @@ bool StartFFmpeg()
 
 	// Options for audio, codec and fps
 	recorder.EnableAudio(bAudio); // For recording system audio
-	recorder.SetCodec(codec); // x264 codec
+	// Set preset and quality before codec
+	recorder.SetPreset(preset); // h264 preset - // 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
+	recorder.SetQuality(quality); // h264 quality - 0 - low, 1 - medium, 2 - high
+	recorder.SetCodec(codec); // mpeg4 or h264 codec (uses preset and quality)
+
 	recorder.SetFps(g_FPS); // Fps for FFmpeg (see HoldFps)
 
 	// Start FFmpeg pipe
-	// recorder.Start(g_FFmpegPath, g_FFmpegArgs, g_OutputFile, g_SenderWidth, g_SenderHeight, false);
 	recorder.Start(g_FFmpegPath, g_OutputFile, g_SenderWidth, g_SenderHeight, false);
 
 	// Reset console text colour
@@ -954,8 +1078,15 @@ void WriteInitFile(const char* initfile)
 	else
 		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Audio", (LPCSTR)"0", (LPCSTR)initfile);
 
-	sprintf_s(tmp, 256, "%.1d", codec);
+	sprintf_s(tmp, 256, "%d", codec);
 	WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Codec", (LPCSTR)tmp, (LPCSTR)initfile);
+
+	sprintf_s(tmp, 256, "%d", quality);
+	WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Quality", (LPCSTR)tmp, (LPCSTR)initfile);
+
+	// Preset  0, 1, 2, 3
+	sprintf_s(tmp, 256, "%d", preset);
+	WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Preset", (LPCSTR)tmp, (LPCSTR)initfile);
 
 	if (bPrompt)
 		WritePrivateProfileStringA((LPCSTR)"Options", (LPCSTR)"Prompt", (LPCSTR)"1", (LPCSTR)initfile);
@@ -989,13 +1120,24 @@ void ReadInitFile(const char* initfile)
 	if (tmp[0]) codec = atoi(tmp);
 
 	if (codec == 0) { // mpeg4
+		// TODO - unused
 		g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
 		g_FileExt = "mp4";
 	}
-	if (codec == 1) { // x264
+	if (codec == 1) { // h264
+		// TODO - unused
 		g_FFmpegArgs = " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23";
 		g_FileExt = "mkv";
 	}
+
+	quality = 1; // 0 - low, 1 - medium, 2 - high
+	GetPrivateProfileStringA((LPCSTR)"Options", (LPSTR)"Quality", NULL, (LPSTR)tmp, 3, initfile);
+	if (tmp[0]) quality = atoi(tmp);
+
+	// Preset  0, 1, 2, 3
+	sprintf_s(tmp, 256, "%.1d", preset);
+	GetPrivateProfileStringA((LPCSTR)"Options", (LPSTR)"Preset", NULL, (LPSTR)tmp, 3, initfile);
+	if (tmp[0]) preset = atoi(tmp);
 
 	bPrompt = false;
 	GetPrivateProfileStringA((LPCSTR)"Options", (LPSTR)"Prompt", NULL, (LPSTR)tmp, 3, initfile);

@@ -7,6 +7,7 @@
 //
 // Revisions
 //		26-08-23 - Initial class
+//		01.09.23 - Add quality and preset
 //
 // =========================================================================
 // 
@@ -146,7 +147,50 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 	args += " -i - ";
 
 	// Codec options
-	args += m_FFmpegCodec;
+	if (m_FFmpegCodec.empty()) {
+
+		if (m_codec == 1) { // h264
+
+			// Example
+			// " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23"; // 7,098
+
+			args += " -vcodec libx264";
+
+			// 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
+			if (m_Preset == 0)
+				args += " -preset ultrafast";
+			else if (m_Preset == 1)
+				args += " -preset superfast";
+			else if (m_Preset == 2)
+				args += " -preset veryfast";
+			else
+				args += " -preset faster";
+
+			// Tune
+			args += " -tune zerolatency";
+
+			// Quality
+			//    0 - low (crf 28)
+			//    1 - medium (crf 23)
+			//    2 - high (crf 18)
+			if (m_Quality == 0)
+				args += " -crf 28";
+			else if (m_Quality == 1)
+				args += " -crf 23";
+			else
+				args += " -crf 18";
+			m_FileExt = "mkv";
+		}
+		else {
+			// Default FFmpeg “mpeg4” encoder (MPEG-4 Part 2 format)
+			// https://trac.ffmpeg.org/wiki/Encode/MPEG-4
+			args += " -vcodec mpeg4 -qscale:v 3"; // high quality
+			m_FileExt = "mp4";
+		}
+	}
+	else {
+		args += m_FFmpegCodec;
+	}
 
 	// Necessary for adding an audio stream
 	if (m_bAudio)
@@ -155,16 +199,19 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 	str += args; // add FFmpeg arguments
 
 	str += " \""; // Insert a space and double quote before the output file
+
 	// Strip existing extension
 	size_t pos = OutputFile.rfind(".");
 	if (pos != std::string::npos)
 		OutputFile = OutputFile.substr(0, pos+1);
+
 	// Add codec extension
 	OutputFile += m_FileExt;
 	str += OutputFile; // Output file full path
 	str += "\""; // Final double quote
 
 	// printf("%s\n", str.c_str());
+
 
 	// _popen for FFmpeg will open a console window.
 	// To hide the output, open a console first and then hide it.
@@ -359,24 +406,12 @@ void spoutRecord::EnableAudio(bool bAudio)
 }
 
 // -----------------------------------------------
-// Set pre-defined codec
+// Set codec
 //    0 - mpeg4, 1 - x264
 //
 void spoutRecord::SetCodec(int codec)
 {
 	m_codec = codec;
-	if (codec == 1) { // x264
-		m_FFmpegCodec = " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23";
-		m_FileExt = "mkv";
-	}
-	else {
-		// Default FFmpeg “mpeg4” encoder (MPEG-4 Part 2 format)
-		// https://trac.ffmpeg.org/wiki/Encode/MPEG-4
-		// Quality (1 = best, 31 = worse) 
-		// 5 - best trade off between file size and quality
-		m_FFmpegCodec = " -vcodec mpeg4 -q:v 5";
-		m_FileExt = "mp4";
-	}
 }
 
 // -----------------------------------------------
@@ -394,6 +429,46 @@ void spoutRecord::SetExtension(std::string extension)
 {
 	m_FileExt = extension;
 }
+
+// https://trac.ffmpeg.org/wiki/Encode/H.264
+
+// -----------------------------------------------
+// Set x264 preset
+//    0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
+//
+void spoutRecord::SetPreset(int preset)
+{
+	m_Preset = preset;
+}
+
+// -----------------------------------------------
+// Set x264 constant rate factor - CRF
+//    0 - 51
+//    Default - 23
+//    Visually lossless - 18
+//
+void spoutRecord::SetRate(int rate)
+{
+	m_Crf = rate;
+}
+
+// -----------------------------------------------
+// Set x264 quality (crf)
+//    0 - low (crf 28)
+//    1 - medium (crf 23)
+//    2 - high (crf 18)
+//
+void spoutRecord::SetQuality(int quality)
+{
+	m_Quality = quality;
+	if(quality == 0)
+		m_Crf = 28; // Low
+	else if (quality == 1)
+		m_Crf = 23; // Medium
+	else
+		m_Crf = 18; // High
+}
+
 
 // -----------------------------------------------
 // Set frame rate for FFmpeg output
