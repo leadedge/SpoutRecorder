@@ -135,9 +135,11 @@
 		04.08.23 - const WCHAR* in MessageTaskDialog
 		13.08.23 - MessageTaskDialog - remove MB_TOPMOST
 		20.08.23 - Change TaskdialogcallbackProc to TDcallbackProc to avoid naming conflicts
-		21.08.23 - MessageTaskDialog - Restore tomost function
+		21.08.23 - MessageTaskDialog - Restore topmost function
 				   Change bTopmost to bTopMost to avoid naming conflicts
 		23.08.23 - MessageTaskDialog - Fixed topmost recover for calling application
+		26.08.23 - PFTASKDIALOGCALLBACK cast for TDcallbackProc
+		04.09.23 - MessageTaskDialog - add MB_ICONINFORMATION option. Default no icon.
 
 */
 
@@ -1554,48 +1556,41 @@ namespace spoututils {
 			// MB_ICONSTOP
 			// MB_ICONERROR
 			// MB_ICONHAND
-			// TD_WARNING_ICON , TD_ERROR_ICON, TD_INFORMATION_ICON, TD_SHIELD_ICON      
-			WCHAR* wMainIcon = TD_INFORMATION_ICON;
-			const WCHAR* wMainInstruction = L"Information";
+			// TD_WARNING_ICON, TD_ERROR_ICON, TD_INFORMATION_ICON, TD_SHIELD_ICON      
+			WCHAR* wMainIcon = nullptr; // Default no icon
+			const WCHAR* wMainInstruction = nullptr; // No instruction
 
 			if ((dwl ^ MB_ICONERROR) == 0) {
-				wMainIcon = TD_SHIELD_ICON;
+				wMainIcon = TD_ERROR_ICON;
 				wMainInstruction = L"Error";
 			}
-			if ((dwl ^ MB_ICONWARNING) == 0) {
+			else if ((dwl ^ MB_ICONWARNING) == 0 || (dwl ^ MB_ICONEXCLAMATION) == 0) {
 				wMainIcon = TD_WARNING_ICON;
 				wMainInstruction = L"Warning";
 			}
-			if ((dwl ^ MB_ICONEXCLAMATION) == 0) {
-				wMainIcon = TD_WARNING_ICON;
-				wMainInstruction = L"Warning";
-			}
-			if ((dwl ^ MB_YESNOCANCEL) == 0) {
+			else if ((dwl ^ MB_YESNOCANCEL) == 0 || (dwl ^ MB_YESNO) == 0 || (dwl ^ MB_ICONQUESTION) == 0) {
 				wMainIcon = TD_INFORMATION_ICON;
 				wMainInstruction = L"Question";
 			}
-			if ((dwl ^ MB_YESNO) == 0) {
+			else if ((dwl ^ MB_ICONINFORMATION) == 0) {
 				wMainIcon = TD_INFORMATION_ICON;
-				wMainInstruction = L"Question";
-			}
-			if ((dwl ^ MB_ICONQUESTION) == 0) {
-				wMainIcon = TD_INFORMATION_ICON;
-				wMainInstruction = L"Question";
+				wMainInstruction = L"Information";
 			}
 
 			int nButtonPressed        = 0;
+			int nRadioButton          = 0;
 			TASKDIALOGCONFIG config   = {0};
 			config.cbSize             = sizeof(config);
 			config.hwndParent         = NULL;
 			config.hInstance          = hInst;
-			config.pszWindowTitle = wstrCaption.c_str();
+			config.pszWindowTitle     = wstrCaption.c_str();
 			config.pszMainIcon        = wMainIcon;
 			config.pszMainInstruction = wMainInstruction;
 			config.pszContent         = wstrTemp.c_str();
 			config.dwCommonButtons    = dwCommonButtons;
 			config.cxWidth            = 0; // auto width - requires TDF_SIZE_TO_CONTENT
 			config.dwFlags            = TDF_SIZE_TO_CONTENT | TDF_CALLBACK_TIMER | TDF_ENABLE_HYPERLINKS;
-			config.pfCallback         = TDcallbackProc;
+			config.pfCallback         = reinterpret_cast<PFTASKDIALOGCALLBACK>(TDcallbackProc);
 			config.lpCallbackData     = reinterpret_cast<LONG_PTR>(&dwMilliseconds);
 
 			if (bTopMost) {
@@ -1605,6 +1600,7 @@ namespace spoututils {
 				if (hwndParent) hwndTop = hwndParent;
 				// Is it topmost ?
 				if ((GetWindowLong(hwndTop, GWL_EXSTYLE) & WS_EX_TOPMOST) > 0) {
+					// Move it down
 					SetWindowPos(hwndTop, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 				}
 				else {
@@ -1612,7 +1608,7 @@ namespace spoututils {
 				}
 			}
 
-			TaskDialogIndirect(&config, &nButtonPressed, NULL, NULL);
+			TaskDialogIndirect(&config, &nButtonPressed, &nRadioButton, NULL);
 
 			if (bTopMost && hwndTop) {
 				// Reset the window that was topmost before

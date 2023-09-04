@@ -481,7 +481,7 @@ int main(int argc, char* argv[])
 									str += "Reset to defaults. Topmost false, auto file name, no audio, mpeg4 codec. ";
 									str += "h624 - ultrafast preset and medium quality\n\n";
 
-									SpoutMessageBox(NULL, str.c_str(), "Options", MB_OK | MB_TOPMOST);
+									SpoutMessageBox(NULL, str.c_str(), "Options", MB_OK  | MB_ICONINFORMATION | MB_TOPMOST);
 								}
 
 								// Q - toggle quality
