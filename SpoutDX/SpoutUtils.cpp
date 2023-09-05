@@ -140,6 +140,8 @@
 		23.08.23 - MessageTaskDialog - Fixed topmost recover for calling application
 		26.08.23 - PFTASKDIALOGCALLBACK cast for TDcallbackProc
 		04.09.23 - MessageTaskDialog - add MB_ICONINFORMATION option. Default no icon.
+				   Add MB_ICONSTOP and MB_ICONHAND. MB_TOPMOST flag removal only if specified.
+		05.09.23 - Add SpoutMessageBoxIcon for custom icon
 
 */
 
@@ -831,6 +833,23 @@ namespace spoututils {
 		// Quiet unreferenced parameter
 		hwnd = hwnd; 
 		return MessageTaskDialog(NULL, message, caption, uType, dwMilliseconds);
+	}
+
+	// ---------------------------------------------------------
+	// Function: SpoutMessageBoxIcon
+	// Custom icon for SpoutMessageBox from resources
+	void SPOUT_DLLEXP SpoutMessageBoxIcon(HICON hIcon)
+	{
+		hTaskIcon = hIcon;
+	}
+
+	// ---------------------------------------------------------
+	// Function: SpoutMessageBoxIcon
+	// Custom icon for SpoutMessageBox from file
+	bool SPOUT_DLLEXP SpoutMessageBoxIcon(std::string iconfile)
+	{
+		hTaskIcon = reinterpret_cast<HICON>(LoadImageA(nullptr, iconfile.c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE));
+		return (hTaskIcon);
 	}
 
 
@@ -1529,7 +1548,9 @@ namespace spoututils {
 
 			// Topmost global flag
 			bTopMost = ((dwButtons & MB_TOPMOST) != 0);
-			LONG dwl = (LONG)dwButtons ^ MB_TOPMOST;
+			LONG dwl = (LONG)dwButtons;
+			if(bTopMost)
+				dwl = dwl ^ MB_TOPMOST;
 
 			// https://learn.microsoft.com/en-us/windows/win32/api/commctrl/nf-commctrl-taskdialog
 			// TDCBF_OK_BUTTON 1
@@ -1548,6 +1569,10 @@ namespace spoututils {
 			else
 				dwCommonButtons = MB_OK;
 
+			// Icons available
+			// TD_WARNING_ICON, TD_ERROR_ICON, TD_INFORMATION_ICON, TD_SHIELD_ICON
+			//
+			// Icons to allow for
 			// MB_ICONEXCLAMATION
 			// MB_ICONWARNING
 			// MB_ICONINFORMATION
@@ -1556,13 +1581,17 @@ namespace spoututils {
 			// MB_ICONSTOP
 			// MB_ICONERROR
 			// MB_ICONHAND
-			// TD_WARNING_ICON, TD_ERROR_ICON, TD_INFORMATION_ICON, TD_SHIELD_ICON      
-			WCHAR* wMainIcon = nullptr; // Default no icon
+			HICON hMainIcon = NULL; // No user icon
+			WCHAR* wMainIcon = nullptr; // No resource icon
 			const WCHAR* wMainInstruction = nullptr; // No instruction
 
 			if ((dwl ^ MB_ICONERROR) == 0) {
 				wMainIcon = TD_ERROR_ICON;
 				wMainInstruction = L"Error";
+			}
+			else if ((dwl ^ MB_ICONSTOP) == 0 || (dwl ^ MB_ICONHAND) == 0) {
+				wMainIcon = TD_ERROR_ICON;
+				wMainInstruction = L"Stop";
 			}
 			else if ((dwl ^ MB_ICONWARNING) == 0 || (dwl ^ MB_ICONEXCLAMATION) == 0) {
 				wMainIcon = TD_WARNING_ICON;
@@ -1576,6 +1605,11 @@ namespace spoututils {
 				wMainIcon = TD_INFORMATION_ICON;
 				wMainInstruction = L"Information";
 			}
+			else if ((dwl ^ MB_USERICON) == 0) {
+				// Private SpoutUtils icon handle set by SpoutMessageBoxIcon
+				hMainIcon = hTaskIcon;
+				wMainIcon = nullptr;
+			}
 
 			int nButtonPressed        = 0;
 			int nRadioButton          = 0;
@@ -1584,15 +1618,19 @@ namespace spoututils {
 			config.hwndParent         = NULL;
 			config.hInstance          = hInst;
 			config.pszWindowTitle     = wstrCaption.c_str();
-			config.pszMainIcon        = wMainIcon;
+			config.hMainIcon          = hMainIcon;
+			if (!hMainIcon)
+				config.pszMainIcon    = wMainIcon; // Important to remove this
 			config.pszMainInstruction = wMainInstruction;
 			config.pszContent         = wstrTemp.c_str();
 			config.dwCommonButtons    = dwCommonButtons;
 			config.cxWidth            = 0; // auto width - requires TDF_SIZE_TO_CONTENT
 			config.dwFlags            = TDF_SIZE_TO_CONTENT | TDF_CALLBACK_TIMER | TDF_ENABLE_HYPERLINKS;
+			if (hMainIcon)
+				config.dwFlags        |= TDF_USE_HICON_MAIN; // User icon
 			config.pfCallback         = reinterpret_cast<PFTASKDIALOGCALLBACK>(TDcallbackProc);
 			config.lpCallbackData     = reinterpret_cast<LONG_PTR>(&dwMilliseconds);
-
+	
 			if (bTopMost) {
 				// Get the first visible window in the Z order
 				hwndTop = GetForegroundWindow();

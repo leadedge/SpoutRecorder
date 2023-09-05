@@ -459,7 +459,8 @@ int main(int argc, char* argv[])
 									str += "\\data\\audio\\VirtualAudio\">\"VirtualAudio\"</a> folder.\n\n";
 
 									str += "C - Codec\n";
-									str += "<a href=\"https://trac.ffmpeg.org/wiki/Encode/MPEG-4\">Mpeg4</a> is a well established codec that performs well for most systems. ";
+									str += "<a href=\"https://trac.ffmpeg.org/wiki/Encode/MPEG-4\">Mpeg4</a> is a well established codec ";
+									str += "that provides good video quality at high speed. ";
 									str += "<a href=\"https://trac.ffmpeg.org/wiki/Encode/H.264\">h264</a> is a modern codec with more control over ";
 									str += "quality, encoding speed and file size.\n\n";
 
