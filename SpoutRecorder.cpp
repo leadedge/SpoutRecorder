@@ -6,7 +6,7 @@
 //
 //    Recording
 //	      F1     - start recording
-//        F2/ESC - stop recording
+//        F2     - stop recording
 //        V      - show video folder
 //        H      - help
 //
@@ -89,6 +89,11 @@
 //				   Change 'Q' to set Quality instead of Quit
 //				   Close console with caption [X] which is intercepted already.
 //				   Version 1.006
+//		12.11.23   Command line "-name" for user defined output
+//				   Remove ESC exit due to conflict with FFmpeg
+//				   Add experimental batch files for ZeroMQ streaming
+//				   Clean up ParseCommandLine
+//				   Version 1.007
 //
 // =========================================================================
 // 
@@ -231,6 +236,7 @@ int main(int argc, char* argv[])
 	// -start     - Immediate start encoding (default false)
 	// -hide      - Hide the console when recording (show on taskbar)
 	// -prompt    - Prompt user with file name entry dialog (default false)
+	// -output    - User specified output
 	// -audio     - Record speaker audio using directshow virtual-audio-device 
 	// -mpeg4     - mpeg4 codec (default)
 	// -h264      - h264 codec (libx264)
@@ -342,7 +348,6 @@ int main(int argc, char* argv[])
 					if (irInBuf.Event.KeyEvent.bKeyDown) {
 						if (irInBuf.Event.KeyEvent.wRepeatCount == 1) {
 							WORD vCode = irInBuf.Event.KeyEvent.wVirtualKeyCode;
-							// printf("vCode = %d\n", vCode);
 							if (vCode > 111) {
 								// F1 - start recording
 								if (vCode == 112) {
@@ -371,15 +376,6 @@ int main(int argc, char* argv[])
 							else {
 								CHAR key = irInBuf.Event.KeyEvent.uChar.AsciiChar;
 								// printf("0x%X\n", key);
-
-								// ESC - stop recording
-								if (key == 0x1B) {
-									if (recorder.IsEncoding()) {
-										StopFFmpeg();
-										bStart = false;
-										bExit = false;
-									}
-								}
 
 								// A - toggle audio
 								if (key == 0x61) {
@@ -637,7 +633,7 @@ void ShowKeyCommands()
 	char prestr[256]={0};
 
 	std::string startstr   = "  F1     - start recording\n";
-	startstr              += "  F2/ESC - stop recording \n";
+	startstr              += "  F2     - stop recording \n";
 	startstr              += "  V      - show video folder\n";
 	startstr              += "  H      - help\n";
 	startstr              += "\nSettings\n";
@@ -695,7 +691,7 @@ void ShowKeyCommands()
 }
 
 
-// Parse command line argsuments
+// Parse command line arguments
 void ParseCommandLine(int argc, char* argv[])
 {
 	// argv[0] is the executable name
@@ -708,15 +704,14 @@ void ParseCommandLine(int argc, char* argv[])
 			argstr = argv[i];
 			if (argv[i]) {
 				// Program arguments
-				if (strstr(argv[i], "-start") != 0) {
-					// Command line immediate start
-					bStart = true;
-					bHide = false;
-					bAudio = false;
-					bPrompt = false;
-					g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
-					g_FileExt = "mp4";
-					codec = 0;
+				if (strstr(argv[i], "-name") != 0) {
+					// Specify output file name
+					size_t pos = argstr.find("-name");
+					if (pos != std::string::npos) {
+						// Remove arg
+						argstr = argstr.substr(pos+6);
+						g_OutputFile = argstr;
+					}
 				}
 				else if (strstr(argv[i], "-hide") != 0) {
 					// Hide window on record
@@ -767,10 +762,15 @@ void ParseCommandLine(int argc, char* argv[])
 					if (pos != std::string::npos) {
 						argstr = argstr.substr(pos+5, 3);
 						g_FileExt = argstr;
+						recorder.SetExtension(g_FileExt);
 					}
 				}
+				else if (strstr(argv[i], "-start") != 0) {
+					// Command line immediate start
+					bStart = true;
+				}
 				else {
-					// FFmpeg arguments are last
+					// User FFmpeg arguments are last
 					g_FFmpegArgs = argstr;
 					if (!g_FFmpegArgs.empty()) {
 						// Extract frame rate for FFmpeg and video receive
@@ -784,6 +784,17 @@ void ParseCommandLine(int argc, char* argv[])
 				}
 			}
 		}
+
+		// Tell the recorder the codec by user string
+		// TODO : check
+		if (!g_FFmpegArgs.empty()) {
+			recorder.SetCodec(g_FFmpegArgs);
+		}
+
+		// Start by command line
+		if(bStart)
+			StartFFmpeg();
+
 	}
 }
 
@@ -902,17 +913,13 @@ void Receive()
 
 bool StartFFmpeg()
 {
+	printf("StartFFmpeg\n");
+
 	// Already recording, no sender or no FFmpeg
 	if (recorder.IsEncoding() || !bActive || g_FFmpegPath.empty()) {
+		printf("returning false\n");
 		return false;
 	}
-
-	// Default output file
-	g_OutputFile = g_ExePath; // exe folder
-	g_OutputFile += "\\DATA\\Videos\\";
-	g_OutputFile += (char*)g_SenderName;
-	g_OutputFile += ".";
-	g_OutputFile += g_FileExt;
 
 	//
 	// User file name entry
@@ -953,13 +960,24 @@ bool StartFFmpeg()
 		g_OutputFile = filePath;
 	}
 
+	// Output file unless specified by command line
+	if (g_OutputFile.empty()) {
+		g_OutputFile = g_ExePath; // exe folder
+		g_OutputFile += "\\DATA\\Videos\\";
+		g_OutputFile += (char*)g_SenderName;
+		g_OutputFile += ".";
+		g_OutputFile += g_FileExt;
+		// Tell the recorder the extension to use
+		recorder.SetExtension(g_FileExt);
+	}
+
+
 	// Options for audio, codec and fps
 	recorder.EnableAudio(bAudio); // For recording system audio
 	// Set preset and quality before codec
 	recorder.SetPreset(preset); // h264 preset - // 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
 	recorder.SetQuality(quality); // h264 quality - 0 - low, 1 - medium, 2 - high
 	recorder.SetCodec(codec); // mpeg4 or h264 codec (uses preset and quality)
-
 	recorder.SetFps(g_FPS); // Fps for FFmpeg (see HoldFps)
 
 	// Start FFmpeg pipe

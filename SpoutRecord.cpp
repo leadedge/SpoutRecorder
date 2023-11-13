@@ -148,14 +148,10 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 
 	// Codec options
 	if (m_FFmpegCodec.empty()) {
-
 		if (m_codec == 1) { // h264
-
 			// Example
 			// " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23"; // 7,098
-
 			args += " -vcodec libx264";
-
 			// 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
 			if (m_Preset == 0)
 				args += " -preset ultrafast";
@@ -198,20 +194,25 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 
 	str += args; // add FFmpeg arguments
 
-	str += " \""; // Insert a space and double quote before the output file
-
-	// Strip existing extension
+	// Find the last '.' char
 	size_t pos = OutputFile.rfind(".");
-	if (pos != std::string::npos)
-		OutputFile = OutputFile.substr(0, pos+1);
-
-	// Add codec extension
-	OutputFile += m_FileExt;
-	str += OutputFile; // Output file full path
-	str += "\""; // Final double quote
-
-	// printf("%s\n", str.c_str());
-
+	// Is it 3 from the end ?
+	int extsize = (int)(OutputFile.size()-pos-1);
+	printf("Extension size (%d)\n", extsize);
+	if (extsize == 3) {
+		// Strip existing extension
+		if (pos != std::string::npos)
+			OutputFile = OutputFile.substr(0, pos+1);
+		// Add codec extension
+		OutputFile += m_FileExt;
+		str += " \""; // Insert a space and double quote before the output file
+		str += OutputFile; // Output file full path
+		str += "\""; // Final double quote
+	}
+	else {
+		str += " ";
+		str += OutputFile; // User defined output
+	}
 
 	// _popen for FFmpeg will open a console window.
 	// To hide the output, open a console first and then hide it.
