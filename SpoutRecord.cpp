@@ -8,6 +8,9 @@
 // Revisions
 //		26-08-23 - Initial class
 //		01.09.23 - Add quality and preset
+//		17.11.23 - Allow for ZMQ stream for output name
+//				   Check for existence of extension before modfication for codec
+//				   Allow for user specified codec string
 //
 // =========================================================================
 // 
@@ -78,6 +81,19 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 	}
 #endif
 
+	// Check the output file path for the extension
+	// Find the last '.' char to get the extension
+	size_t pos = OutputFile.rfind(".");
+	int extsize = (int)(OutputFile.size()-pos-1);
+	// Is it 3 from the end ?
+	if ((OutputFile.size()-pos-1) == 3) {
+		// Strip existing extension
+		if (pos != std::string::npos)
+			OutputFile = OutputFile.substr(0, pos+1);
+		// Add codec extension
+		OutputFile += m_FileExt;
+	}
+
 	std::string str = ffmpegPath; // FFmpeg.exe full path
 
 	//
@@ -146,9 +162,23 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 	// The final “-” tells FFmpeg to write to stdout
 	args += " -i - ";
 
+	// No codec is required for zmq output
+	// specify "-codec none" on command line
+
 	// Codec options
-	if (m_FFmpegCodec.empty()) {
-		if (m_codec == 1) { // h264
+	if (!m_FFmpegCodec.empty()) {
+		// printf("m_FFmpegCodec string [%s]\n", m_FFmpegCodec.c_str());
+		args += m_FFmpegCodec;
+
+	}
+	else {
+		if (m_codec == 0) { // mpeg4
+			// Default FFmpeg “mpeg4” encoder (MPEG-4 Part 2 format)
+			// https://trac.ffmpeg.org/wiki/Encode/MPEG-4
+			args += " -vcodec mpeg4 -qscale:v 3"; // high quality
+			m_FileExt = "mp4";
+		}
+		else if (m_codec == 1) { // h264
 			// Example
 			// " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23"; // 7,098
 			args += " -vcodec libx264";
@@ -161,10 +191,8 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 				args += " -preset veryfast";
 			else
 				args += " -preset faster";
-
 			// Tune
 			args += " -tune zerolatency";
-
 			// Quality
 			//    0 - low (crf 28)
 			//    1 - medium (crf 23)
@@ -177,34 +205,23 @@ bool spoutRecord::Start(std::string ffmpegPath, std::string OutputFile,
 				args += " -crf 18";
 			m_FileExt = "mkv";
 		}
-		else {
-			// Default FFmpeg “mpeg4” encoder (MPEG-4 Part 2 format)
-			// https://trac.ffmpeg.org/wiki/Encode/MPEG-4
-			args += " -vcodec mpeg4 -qscale:v 3"; // high quality
-			m_FileExt = "mp4";
-		}
-	}
-	else {
-		args += m_FFmpegCodec;
 	}
 
 	// Necessary for adding an audio stream
 	if (m_bAudio)
 		args += " -shortest";
 
+	// User arguments by command line
+	if (!m_FFmpegArgs.empty()) {
+		// printf("m_FFmpegArgs [%s]\n", m_FFmpegArgs.c_str());
+		args += " ";
+		args += m_FFmpegArgs;
+	}
+
 	str += args; // add FFmpeg arguments
 
-	// Find the last '.' char
-	size_t pos = OutputFile.rfind(".");
-	// Is it 3 from the end ?
-	int extsize = (int)(OutputFile.size()-pos-1);
-	printf("Extension size (%d)\n", extsize);
+	// Add the output in quotes if a valid file name
 	if (extsize == 3) {
-		// Strip existing extension
-		if (pos != std::string::npos)
-			OutputFile = OutputFile.substr(0, pos+1);
-		// Add codec extension
-		OutputFile += m_FileExt;
 		str += " \""; // Insert a space and double quote before the output file
 		str += OutputFile; // Output file full path
 		str += "\""; // Final double quote
@@ -478,6 +495,14 @@ void spoutRecord::SetQuality(int quality)
 void spoutRecord::SetFps(int fps)
 {
 	m_FPS = fps;
+}
+
+// -----------------------------------------------
+// User arguments specified by command line
+//
+void spoutRecord::SetArgs(std::string args)
+{
+	m_FFmpegArgs = args;
 }
 
 

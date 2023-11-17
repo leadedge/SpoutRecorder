@@ -41,14 +41,14 @@ public:
 	bool IsEncoding();
 
 	void EnableAudio(bool bAudio = true);
-	void SetCodec(int codec = 0);
+	void SetCodec(int codec = -1);
 	void SetCodec(std::string codecString);
 	void SetExtension(std::string extension);
 	void SetPreset(int preset = 0); // 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
 	void SetQuality(int quality); // 0 - low, 1 - medium, 2 - high
 	void SetRate(int rate = 23);
-
 	void SetFps(int fps);
+	void SetArgs(std::string args); // User arguments specifine by command line
 
 private:
 
@@ -63,13 +63,14 @@ private:
 	unsigned char* m_pixelBuffer = nullptr; // Receiving pixel buffer
 	unsigned int m_nBytes=0;
 	bool m_bAudio = false; // system audio
-	int m_codec = 0; // 0 - mp4, 1 - h264
-	int m_Preset = 0; // x264 preset
+	int m_codec = 0;   // 0 - mp4, 1 - h264, -1 none
+	int m_Preset = 0;  // x264 preset
 	int m_Quality = 0; // x264 quality
 	int m_Crf = 23; // x264 rate factor (crf)
 	int m_FPS = 30; // input and output frame rates must match
-	std::string m_FFmpegCodec; // User FFmpeg codec args
+	std::string m_FFmpegCodec; // User FFmpeg codec string
 	std::string m_FileExt = "mp4";
+	std::string m_FFmpegArgs; // User FFmpeg codec args
 
 };
 

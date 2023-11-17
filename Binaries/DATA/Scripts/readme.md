@@ -13,4 +13,11 @@ to be registered using "VirtualAudioRegister"
 
 * "aa-dos.bat" - opens a command prompt window
 
+* "zmq-play.bat" - play ZMQ output\
+Uses FFplay (see "aa-record.bat" for ZMQ output option)
+
+* "zmq-start.bat" - start zmq-play.bat without showing the FFplay console window\
+There is a delay for ZMQ discovery and start so wait for it.
+
+
 

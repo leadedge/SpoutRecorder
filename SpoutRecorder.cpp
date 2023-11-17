@@ -94,6 +94,8 @@
 //				   Add experimental batch files for ZeroMQ streaming
 //				   Clean up ParseCommandLine
 //				   Version 1.007
+//		17.11.23   Revise command line arguments
+//				   Allow for ZMQ stream for output name
 //
 // =========================================================================
 // 
@@ -143,7 +145,6 @@ DWORD fdwSaveOldMode = 0;
 HANDLE hStdIn = NULL;
 
 // For FFmpeg recording
-std::string g_FFmpegArgs=" -vcodec mpeg4 -q:v 5"; // FFmpeg arguments from batch file
 std::string g_OutputFile; // Output video file
 bool bActive = false;     // Sender is active
 bool bTopmost = false;    // Topmost (ALT-T)
@@ -155,7 +156,7 @@ bool bStart  = false;
 bool bHide   = false;
 bool bPrompt = true;
 bool bAudio  = false;
-int codec    = 0; // 0 - mpeg4, 1 - h264
+int codec    = 0; // 0 - mpeg4, 1 - h264, -1 none
 int quality  = 1; // 0 - low, 1 - medium, 2 - high
 int preset   = 0; // 0 - ultrafast, 1 - superfast, 2 - veryfast, 3 - faster
 std::string g_FileExt = "mp4";
@@ -178,7 +179,6 @@ void Close();
 
 int main(int argc, char* argv[])
 {
-
 	// For console window functions
 	g_hWnd = GetConsoleWindow();
 
@@ -232,24 +232,28 @@ int main(int argc, char* argv[])
 
 	//
 	// Parse command line arguments
+	// (see "DATA\Scripts\aa-record.bat")
 	//
 	// -start     - Immediate start encoding (default false)
 	// -hide      - Hide the console when recording (show on taskbar)
 	// -prompt    - Prompt user with file name entry dialog (default false)
-	// -output    - User specified output
+	// -name      - User specified output name for FFmpeg
 	// -audio     - Record speaker audio using directshow virtual-audio-device 
+	// -codec     - User specified codec string ("-codec none" to use FFmpeg default)
 	// -mpeg4     - mpeg4 codec (default)
 	// -h264      - h264 codec (libx264)
-	// -low       - h264 quality (CRF)
-	// -medium
-	// -high
-	// -ultrafast - h264 preset
-	// -superfast
-	// -veryfast
-	// -faster
+	//   Options
+	//   h264 quality(CRF)
+	//     -quality low       -
+	//     -quality medium
+	//     -quality high
+	//   h264 preset
+	//     -preset ultrafast
+	//     -preset superfast
+	//     -preset veryfast
+	//     -preset faster
 	// -ext       - file type required by codec (default "mp4")
-	//
-	// User FFmpeg arguments are last (see "DATA\Scripts\aa-record.bat")
+	// -args      - user FFmpeg arguments
 	//
 	if (argc > 1) {
 		bCommandLine = true;
@@ -368,6 +372,7 @@ int main(int argc, char* argv[])
 										StopFFmpeg();
 										bStart = false;
 										bExit = false;
+										// Leave this out for debugging with printf
 										system("cls"); // Clear the console
 										ShowKeyCommands();
 									}
@@ -389,14 +394,10 @@ int main(int argc, char* argv[])
 									codec += 1;
 									if (codec > 1) codec = 0;
 									if (codec == 0) { // mpeg4
-										// TODO - unused
-										g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
 										g_FileExt = "mp4";
 										g_FPS = 30;
 									}
 									if (codec == 1) { // h264
-										// TODO - unused
-										g_FFmpegArgs = " -vcodec libx264 -preset superfast -tune zerolatency -crf 23";
 										g_FileExt = "mkv";
 										g_FPS = 30;
 									}
@@ -695,23 +696,30 @@ void ShowKeyCommands()
 void ParseCommandLine(int argc, char* argv[])
 {
 	// argv[0] is the executable name
-	// FFmpeg arguments are last
+	// User FFmpeg arguments are last
 	if (argc > 0) {
+
+		// Default mpeg4
+		codec = 0;
+		g_FileExt = "mp4";
 
 		std::string argstr;
 		for (int i = 1; i < argc; i++)
 		{
 			argstr = argv[i];
 			if (argv[i]) {
-				// Program arguments
+				// User specified output file name
 				if (strstr(argv[i], "-name") != 0) {
-					// Specify output file name
 					size_t pos = argstr.find("-name");
 					if (pos != std::string::npos) {
 						// Remove arg
 						argstr = argstr.substr(pos+6);
 						g_OutputFile = argstr;
 					}
+				}
+				else if (strstr(argv[i], "-start") != 0) {
+					// Command line immediate start
+					bStart = true;
 				}
 				else if (strstr(argv[i], "-hide") != 0) {
 					// Hide window on record
@@ -726,35 +734,51 @@ void ParseCommandLine(int argc, char* argv[])
 					bAudio = true;
 				}
 				else if(strstr(argv[i], "-mpeg4") != 0) { // mpeg4
-					g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
 					g_FileExt = "mp4";
 					codec = 0;
 				}
 				else if (strstr(argv[i], "-h264") != 0) { // h264
-					g_FFmpegArgs = " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23";
 					g_FileExt = "mkv";
 					codec = 1;
+					if (strstr(argv[i], "-preset") != 0) { // h264 preset
+						if (strstr(argv[i], "-ultrafast") != 0) {
+							preset = 0;
+						}
+						else if (strstr(argv[i], "-superfast") != 0) {
+							preset = 1;
+						}
+						else if (strstr(argv[i], "-veryfast") != 0) {
+							preset = 2;
+						}
+						else if (strstr(argv[i], "-faster") != 0) {
+							preset = 3;
+						}
+					}
+					if (strstr(argv[i], "-quality") != 0) { // h264 quality
+						if (strstr(argv[i], "-low") != 0) {
+							quality = 0;
+						}
+						else if (strstr(argv[i], "-medium") != 0) {
+							quality = 1;
+						}
+						else if (strstr(argv[i], "-high") != 0) {
+							quality = 2;
+						}
+					}
 				}
-				else if (strstr(argv[i], "-low") != 0) { // h264 quality
-					quality = 0;
-				}
-				else if (strstr(argv[i], "-medium") != 0) { // h264 quality
-					quality = 1;
-				}
-				else if (strstr(argv[i], "-high") != 0) { // h264 quality
-					quality = 2;
-				}
-				else if (strstr(argv[i], "-ultrafast") != 0) { // h264 preset
-					preset = 0;
-				}
-				else if (strstr(argv[i], "-superfast") != 0) { // h264 preset
-					preset = 1;
-				}
-				else if (strstr(argv[i], "-veryfast") != 0) { // h264 preset
-					preset = 2;
-				}
-				else if (strstr(argv[i], "-faster") != 0) { // h264 preset
-					preset = 3;
+				else if (strstr(argv[i], "-codec") != 0) {
+					// User specified FFmpeg codec string
+					size_t pos = argstr.find("-codec");
+					if (pos != std::string::npos) {
+						argstr = argstr.substr(pos+7);
+						if (argstr == "none") {
+							// no codec specified
+							codec = -1;
+						}
+						else {
+							recorder.SetCodec(argstr);
+						}
+					}
 				}
 				else if (strstr(argv[i], "-ext") != 0) {
 					// Alternate file type required by codec (mp4/mkv/avi/mov/wmv etc)
@@ -762,39 +786,25 @@ void ParseCommandLine(int argc, char* argv[])
 					if (pos != std::string::npos) {
 						argstr = argstr.substr(pos+5, 3);
 						g_FileExt = argstr;
-						recorder.SetExtension(g_FileExt);
 					}
 				}
-				else if (strstr(argv[i], "-start") != 0) {
-					// Command line immediate start
-					bStart = true;
-				}
-				else {
-					// User FFmpeg arguments are last
-					g_FFmpegArgs = argstr;
-					if (!g_FFmpegArgs.empty()) {
-						// Extract frame rate for FFmpeg and video receive
-						size_t pos = argstr.find("-r ");
-						if (pos != std::string::npos) {
-							argstr = argstr.substr(pos+3, 2); // 2 digits for fps
+				else if (strstr(argv[i], "-args") != 0) {
+					// User FFmpeg arguments
+					size_t pos = argstr.find("-args");
+					if (pos != std::string::npos) {
+						// Extract frame rate to limit the receiver
+						// input rate (HoldFps) and also for for FFmpeg
+						size_t pos2 = argstr.find("-r ");
+						if (pos2 != std::string::npos) {
 							g_FPS = atoi(argstr.c_str());
 							recorder.SetFps(g_FPS);
 						}
+						argstr = argstr.substr(pos+6);
+						recorder.SetArgs(argstr);
 					}
 				}
 			}
 		}
-
-		// Tell the recorder the codec by user string
-		// TODO : check
-		if (!g_FFmpegArgs.empty()) {
-			recorder.SetCodec(g_FFmpegArgs);
-		}
-
-		// Start by command line
-		if(bStart)
-			StartFFmpeg();
-
 	}
 }
 
@@ -869,6 +879,9 @@ void Receive()
 			// Start FFmpeg for F1 or the command line "-start" argument
 			if (bStart) {
 				if (!StartFFmpeg()) {
+
+					printf("                                    StartFFmpeg failed\n");
+
 					// Quit completely for command line problem
 					if (bCommandLine) {
 						bStart = false;
@@ -913,33 +926,37 @@ void Receive()
 
 bool StartFFmpeg()
 {
-	printf("StartFFmpeg\n");
+
+	// printf("StartFFmpeg : g_OutputFile = (%s)\n", g_OutputFile.c_str());
+	// MessageBoxA(NULL, "StartFFmpeg", "", 0);
 
 	// Already recording, no sender or no FFmpeg
 	if (recorder.IsEncoding() || !bActive || g_FFmpegPath.empty()) {
-		printf("returning false\n");
 		return false;
 	}
 
 	//
-	// User file name entry
+	// User file name entry for recording
 	//
 	if (bPrompt) {
 		char filePath[MAX_PATH]={};
-		sprintf_s(filePath, MAX_PATH, g_OutputFile.c_str());
 		if (!g_OutputFile.empty()) {
-			PathRemoveExtensionA(filePath);
-			if (codec == 1)
-				strcat_s(filePath, MAX_PATH, ".mkv");
-			else
-				strcat_s(filePath, MAX_PATH, ".mp4");
+			// Is it a valid output file name with the extension 3 from the end ?
+			size_t pos = g_OutputFile.rfind(".");
+			if ((g_OutputFile.size()-pos-1) == 3) {
+				sprintf_s(filePath, MAX_PATH, g_OutputFile.c_str());
+				PathRemoveExtensionA(filePath);
+				if (codec == 1)
+					strcat_s(filePath, MAX_PATH, ".mkv");
+				else
+					strcat_s(filePath, MAX_PATH, ".mp4");
+			}
 		}
 
 		OPENFILENAMEA ofn={};
 		ofn.lStructSize = sizeof(OPENFILENAMEA);
-		HWND hwnd = NULL;
-		ofn.hwndOwner = hwnd;
-		ofn.hInstance = GetModuleHandle(0);
+		ofn.hwndOwner = NULL;
+		ofn.hInstance = GetModuleHandleA(0);
 		ofn.nMaxFileTitle = 31;
 		// if ofn.lpstrFile contains a path, that path is the initial directory.
 		ofn.lpstrFile = (LPSTR)filePath;
@@ -953,11 +970,17 @@ bool StartFFmpeg()
 		ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
 		ofn.lpstrTitle = "Output File";
 		if (!GetSaveFileNameA(&ofn)) {
-			// FFmpeg has not been started yet, return to try again
-			return false;
+			DWORD dwError = CommDlgExtendedError();
+			// 0 without error means cancel
+			if (dwError > 0) {
+				// FNERR_INVALIDFILENAME 0x3002
+				return false;
+			}
 		}
-		// User file name entry
-		g_OutputFile = filePath;
+		else {
+			// User file name entry
+			g_OutputFile = filePath;
+		}
 	}
 
 	// Output file unless specified by command line
@@ -970,7 +993,6 @@ bool StartFFmpeg()
 		// Tell the recorder the extension to use
 		recorder.SetExtension(g_FileExt);
 	}
-
 
 	// Options for audio, codec and fps
 	recorder.EnableAudio(bAudio); // For recording system audio
@@ -1139,13 +1161,9 @@ void ReadInitFile(const char* initfile)
 	if (tmp[0]) codec = atoi(tmp);
 
 	if (codec == 0) { // mpeg4
-		// TODO - unused
-		g_FFmpegArgs = " -vcodec mpeg4 -q:v 5";
 		g_FileExt = "mp4";
 	}
 	if (codec == 1) { // h264
-		// TODO - unused
-		g_FFmpegArgs = " -vcodec libx264 -preset ultrafast -tune zerolatency -crf 23";
 		g_FileExt = "mkv";
 	}
 
